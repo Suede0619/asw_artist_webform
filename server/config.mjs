@@ -54,7 +54,7 @@ export function loadConfig(env = process.env) {
   if (!/^[a-f0-9]{64}$/i.test(hexKey)) throw new Error('MAIL_QUEUE_KEY must be 64 hexadecimal characters.');
   return {
     production, port, host, publicUrl: publicUrl.origin, secureCookie: publicUrl.protocol === 'https:',
-    trustProxy, dataDir, smtpUrl: env.SMTP_URL || '', mailFrom: env.MAIL_FROM || 'Southwest Arts <preview@example.test>',
+    trustProxy, dataDir, smtpUrl: env.SMTP_URL || '', mailFrom: env.MAIL_FROM || 'ArtSouthwest <preview@example.test>',
     replyTo: env.REPLY_TO || '', mailKey: Buffer.from(hexKey, 'hex'), reviewerPassword,
     reviewerId: env.REVIEWER_ID || 'editor', callbackOwner: env.CALLBACK_OWNER || 'taos-city-lead',
   };

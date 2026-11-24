@@ -13,8 +13,8 @@ export function Layout({ children, review = false }) {
     <a className="skip-link" href="#main">Skip to content</a>
     <header className="masthead">
       <div className="shell masthead-inner">
-        <a className="brand" href={route('/')} aria-label="Southwest Arts home">
-          <img src="/southwest-arts.webp" width="275" height="92" alt="Southwest Arts" fetchPriority="high" />
+        <a className="brand" href={route('/')} aria-label="ArtSouthwest home">
+          <img src="/ArtSouthwest.svg" width="275" height="92" alt="ArtSouthwest" fetchPriority="high" />
         </a>
         {!review && <a className="quiet-link header-action" href={route('/start?resume=1')}>Resume a submission</a>}
       </div>
@@ -22,7 +22,7 @@ export function Layout({ children, review = false }) {
     <main id="main" tabIndex="-1">{children}</main>
     <footer className="footer">
       <div className="shell footer-inner">
-        <span>Southwest Arts</span>
+        <span>ArtSouthwest</span>
         <a className="quiet-link" href="/privacy">Privacy and submissions</a>
       </div>
     </footer>

@@ -24,7 +24,7 @@ export default defineConfig({
     env: {
       NODE_ENV: 'test', PORT: '4187', HOST: '127.0.0.1', PUBLIC_URL: baseURL,
       DATA_DIR: process.env.ASW_BROWSER_DATA, SMTP_URL: '', MAIL_QUEUE_KEY: 'ad'.repeat(32),
-      MAIL_FROM: 'Southwest Arts <preview@example.test>', REPLY_TO: '', TRUST_PROXY_HOPS: '0',
+      MAIL_FROM: 'ArtSouthwest <preview@example.test>', REPLY_TO: '', TRUST_PROXY_HOPS: '0',
       REVIEWER_PASSWORD: 'fictional-review-password-for-browser-test',
     },
   },

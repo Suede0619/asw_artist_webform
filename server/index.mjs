@@ -5,7 +5,7 @@ process.umask(0o077);
 const config = loadConfig();
 const { app, db, outbox } = createApp(config);
 const server = app.listen(config.port, config.host, () => {
-  console.log('Southwest Arts intake listening on ' + config.publicUrl);
+  console.log('ArtSouthwest intake listening on ' + config.publicUrl);
   if (!config.smtpUrl) console.log('Preview email is written to the private data directory.');
 });
 server.requestTimeout = 90_000;

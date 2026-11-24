@@ -17,7 +17,7 @@ export function Landing() {
     <section className="shell hero">
       <div className="hero-copy">
         <h1>An invitation to show your work</h1>
-        <p>Southwest Arts is a new guide to art in Taos and Santa Fe. We’re inviting a small group of Taos artists to share work for the first edition.</p>
+        <p>ArtSouthwest is a new guide to art in Taos and Santa Fe. We’re inviting a small group of Taos artists to share work for the first edition.</p>
         <p className="offer">Free to submit. <strong>{COMMISSION}% commission on artwork sold through the platform.</strong></p>
         <div className="actions">
           <a className="button" href={route('/start')}>Start my submission</a>
@@ -105,7 +105,7 @@ export function Resume() {
       setError(failure);
     }
   }
-  return <Panel title="Your Southwest Arts submission" intro="Open your submission on this device to continue.">
+  return <Panel title="Your ArtSouthwest submission" intro="Open your submission on this device to continue.">
     <ErrorBox error={error} />
     {/^[\w-]{43}$/.test(token) && error?.status !== 410 &&
       <button className="button" onClick={redeem} disabled={busy}>{busy ? 'Opening…' : 'Open my submission'}</button>}
@@ -134,7 +134,7 @@ export function Callback() {
     }
   }
   if (phase === 'sent') return <Panel title="We received your request"
-    intro="Someone from Southwest Arts will call the number you shared.">
+    intro="Someone from ArtSouthwest will call the number you shared.">
     <a className="button secondary" href={route('/')}>Back to the invitation</a>
   </Panel>;
   return <Panel title="Talk with us first" intro="Leave a number and we’ll get in touch to answer your questions.">

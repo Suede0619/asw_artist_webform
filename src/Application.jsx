@@ -162,13 +162,13 @@ function ReviewSummary({ draft, email, issues, change, navigate }) {
       <Check id="permissions.review" label="I have permission to share these materials for review."
         checked={permissions.review} change={(value) => change('review', value)} error={issues['permissions.review']} required />
       <Check id="permissions.publicUse"
-        label="I give Southwest Arts permission to show the profile, works and credited image copies I submit on its website, subject to the limits below."
+        label="I give ArtSouthwest permission to show the profile, works and credited image copies I submit on its website, subject to the limits below."
         checked={permissions.publicUse} change={(value) => change('publicUse', value)} />
       <p className="field-hint">You can submit with website permission unchecked. We’ll ask you to confirm before publishing.</p>
       <TextArea id="permissions.limitations" label="Permission limits or credit instructions (optional)" rows={2}
         value={permissions.limitations} maxLength={800} onChange={(event) => change('limitations', event.target.value)} />
       <Check id="permissions.commission"
-        label={'I understand that Southwest Arts charges a ' + COMMISSION +
+        label={'I understand that ArtSouthwest charges a ' + COMMISSION +
           '% commission on completed artwork sales through the platform. I can review and accept seller terms separately.'}
         checked={permissions.commission} change={(value) => change('commission', value)}
         error={issues['permissions.commission']} required />

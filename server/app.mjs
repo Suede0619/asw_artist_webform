@@ -86,7 +86,7 @@ export function createApp(config, { sendMail, serveUi = true } = {}) {
       if (req.get('X-Intake-Request') !== '1' ||
           (req.get('Origin') && req.get('Origin') !== config.publicUrl) ||
           req.get('Sec-Fetch-Site') === 'cross-site') {
-        throw new IntakeError(403, 'This request must come from the Southwest Arts form.');
+        throw new IntakeError(403, 'This request must come from the ArtSouthwest form.');
       }
     }
     next();

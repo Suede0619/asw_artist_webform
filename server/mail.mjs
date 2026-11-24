@@ -32,11 +32,11 @@ function newLink(db, config, appId, now) {
 function draftMessage(db, config, { id, email }, now, note) {
   const link = newLink(db, config, id, now);
   const opening = note ? 'Our editorial team has requested an update to your submission.\n\n' + note :
-    'Use the private link below to start or resume your Southwest Arts artist submission.';
+    'Use the private link below to start or resume your ArtSouthwest artist submission.';
   return {
     to: email,
-    subject: note ? 'A note on your Southwest Arts submission' : 'Your Southwest Arts submission link',
-    text: opening + '\n\n' + link + '\n\nThis link expires in 24 hours and works once. You can request a new link on the invitation page.\n\nSouthwest Arts',
+    subject: note ? 'A note on your ArtSouthwest submission' : 'Your ArtSouthwest submission link',
+    text: opening + '\n\n' + link + '\n\nThis link expires in 24 hours and works once. You can request a new link on the invitation page.\n\nArtSouthwest',
   };
 }
 
@@ -53,8 +53,8 @@ export function queueReceipt(db, config, { id, email, revision }, now) {
   const text = 'Thank you for sharing your work. We’ll review your submission and email you with the next step.\n\n' +
     'Your reference is ' + id.slice(0, 8).toUpperCase() +
     '. If a work sells, or if you need to make a correction, return to ' + config.publicUrl +
-    '/start for a private link.\n\nSouthwest Arts';
-  const payload = seal(config.mailKey, { to: email, subject: 'We received your Southwest Arts submission', text });
+    '/start for a private link.\n\nArtSouthwest';
+  const payload = seal(config.mailKey, { to: email, subject: 'We received your ArtSouthwest submission', text });
   db.prepare(`INSERT OR IGNORE INTO outbox(id,event_key,app_id,kind,payload,state,next_at,created_at)
     VALUES(?,?,?,'receipt',?,'pending',?,?)`).run(randomUUID(), 'receipt:' + id + ':' + revision, id, payload, now, now);
 }

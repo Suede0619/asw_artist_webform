@@ -1,6 +1,12 @@
-# Southwest Arts artist intake
+# ArtSouthwest artist intake
 
 The intake collects artist profiles, portraits and three to five available works. Artists can request a call, save a private draft, resume by email and report changes after submitting. The review desk manages calls, corrections, image review and publication. The future catalog can use the read-only published feed.
+
+## Live preview
+
+[Open the ArtSouthwest artist webform](https://margin-brave-quantity-academic.trycloudflare.com/?campaign=taos-artists).
+
+This temporary HTTPS address runs through a Cloudflare tunnel on the Mac. To try the form, choose **Start my submission**, then **Open a sample submission**. Use fictional details. The preview simulates email and callbacks.
 
 ## Local preview
 
@@ -69,4 +75,4 @@ npm run test:browser
 
 The API tests start a loopback server and use fictional records and a simulated mailer. They verify the 1,080-pixel threshold, resume links, stale edits, media access, duplicate callbacks and receipts, editorial publication, sold and withdrawn records, mail retry, backup and restore, and retention. Browser tests use local Chrome and a private test email spool. They cover desktop callback handling and an iPhone-sized submission and resume. If using Playwright’s bundled Chromium, install it and set `PLAYWRIGHT_USE_BUNDLED=1` for the browser test. Browser tests require the prior build.
 
-The Threshold logo and Studio Light photograph are generated campaign assets. The photograph depicts a fictional studio.
+The header uses the ArtSouthwest wordmark. The Studio Light photograph depicts a fictional studio.

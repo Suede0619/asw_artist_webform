@@ -17,5 +17,5 @@ const pages = {
 };
 const path = window.location.pathname.replace(/\/+$/, '') || '/';
 const [Page, title] = pages[path] || pages['/'];
-document.title = title + ' | Southwest Arts';
+document.title = title + ' | ArtSouthwest';
 createRoot(document.getElementById('root')).render(<Layout review={path === '/review'}><Page /></Layout>);

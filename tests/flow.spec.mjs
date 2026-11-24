@@ -127,7 +127,7 @@ test('iPhone-sized flow resumes across browser contexts, validates uploads, and 
     await resumed.getByRole('button', { name: 'Continue' }).click();
     await expect(resumed.getByRole('heading', { name: 'Review', exact: true })).toBeVisible();
     await resumed.getByLabel('I have permission to share these materials for review.').check();
-    await resumed.getByLabel(/I understand that Southwest Arts charges a 20% commission/).check();
+    await resumed.getByLabel(/I understand that ArtSouthwest charges a 20% commission/).check();
     await resumed.getByRole('button', { name: 'Send my work for review' }).click();
     await expect(resumed.getByRole('heading', { level: 1 })).toHaveText('We received your work');
     const noOverflow = await resumed.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
