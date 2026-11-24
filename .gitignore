@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.npm-cache/
+.env
+.env.*
+!.env.example
+data/
+backups/
+test-results/
+playwright-report/
+.DS_Store
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
