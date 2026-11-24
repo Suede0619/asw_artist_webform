@@ -1,0 +1,8 @@
+# Deployment at artsouthwest.com
+
+The [Render Blueprint](render.yaml) defines one Node service and a 5 GB persistent disk. SQLite and uploads share that disk. Cloudflare manages DNS and Render issues the HTTPS certificate. The Blueprint creates billable resources only after someone approves it in the hosting account. [Render disks](https://render.com/docs/disks) · [Render pricing](https://render.com/pricing).
+
+1. In Render, connect the GitHub repository `Suede0619/asw_artist_webform` and create a Blueprint from `main`. Review the displayed charges before provisioning. Supply credentials in the hosting dashboard. Set `SMTP_URL`, a verified `MAIL_FROM`, a monitored `REPLY_TO`, and `MAIL_QUEUE_KEY` using the format in the [README](README.md). Save the generated reviewer password in the team's password manager.
+2. Wait for the service to start and record its actual `.onrender.com` hostname. In the artsouthwest.com Cloudflare zone, add a DNS-only CNAME for `@` to that hostname. Add the equivalent record for `www` if using Render's redirect to the apex. Retain unrelated DNS records, including mail verification. [Render Cloudflare instructions](https://render.com/docs/configure-cloudflare-dns).
+3. Verify the domain and certificate in Render. Confirm HTTPS at `https://artsouthwest.com/` and check `/api/health`. Use the custom domain for form testing because the application checks it on write requests.
+4. Use a fictional submission to verify real receipt and resume email delivery, the review desk, and persistence across a service restart. Follow the README for backups and retention. After these checks, use `https://artsouthwest.com/?campaign=taos-artists` for the Mailchimp button.

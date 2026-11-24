@@ -29,6 +29,8 @@ The private desk shows last activity and upload history. An upload start without
 
 ## Production setup
 
+See the [artsouthwest.com deployment instructions](DEPLOYMENT.md) and [Render Blueprint](render.yaml).
+
 Use one Node service with a durable, private, local disk volume. The [Dockerfile](Dockerfile) runs the service as a non-root user. Use a single replica and keep the SQLite database and media on the same mounted disk. Use a TLS proxy that serves only the configured public origin. Keep the application port private to the proxy. Set the proxy body limit to at least 12 MiB and allow 90 seconds for uploads. Configure `TRUST_PROXY_HOPS=1` only if exactly one trusted reverse proxy sits in front. Use a host volume service that supports local filesystem locks. A multi-instance design would need a shared database, object storage and distributed job processing.
 
 | Setting | Purpose |

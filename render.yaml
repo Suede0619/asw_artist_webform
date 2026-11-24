@@ -1,0 +1,40 @@
+services:
+  - type: web
+    name: artsouthwest-intake
+    runtime: node
+    plan: starter
+    branch: main
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: node server/index.mjs
+    healthCheckPath: /api/health
+    domains:
+      - artsouthwest.com
+    disk:
+      name: artist-intake-data
+      mountPath: /var/data
+      sizeGB: 5
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: PUBLIC_URL
+        value: https://artsouthwest.com
+      - key: DATA_DIR
+        value: /var/data
+      - key: TRUST_PROXY_HOPS
+        value: "1"
+      - key: CALLBACK_OWNER
+        value: taos-city-lead
+      - key: REVIEWER_PASSWORD
+        generateValue: true
+      - key: MAIL_QUEUE_KEY
+        sync: false
+      - key: SMTP_URL
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+      - key: REPLY_TO
+        sync: false
