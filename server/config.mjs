@@ -30,12 +30,16 @@ export function loadConfig(env = process.env) {
   const dataDir = resolve(env.DATA_DIR || 'data');
   const trustProxy = Number(env.TRUST_PROXY_HOPS || 0);
   const reviewerPassword = env.REVIEWER_PASSWORD || '';
+  const reviewerTeamAccess = env.REVIEWER_TEAM_ACCESS || '';
   if (!Number.isInteger(port) || port < 1 || port > 65535 ||
       !Number.isInteger(trustProxy) || trustProxy < 0 || trustProxy > 3) {
     throw new Error('Configure a valid PORT and TRUST_PROXY_HOPS (0–3).');
   }
   if (production && (publicUrl.protocol !== 'https:' || reviewerPassword.length < 24 || !env.MAIL_QUEUE_KEY || !env.CALLBACK_OWNER)) {
     throw new Error('Production requires HTTPS PUBLIC_URL, REVIEWER_PASSWORD (24+ characters), MAIL_QUEUE_KEY and CALLBACK_OWNER.');
+  }
+  if (reviewerTeamAccess && !/^[\w-]{43}:[^\r\n]{1,400}$/.test(reviewerTeamAccess)) {
+    throw new Error('REVIEWER_TEAM_ACCESS must contain a 32-byte base64url token, a colon and a password.');
   }
   if (production && !mailDisabled && (!env.SMTP_URL || !env.MAIL_FROM || !env.REPLY_TO)) {
     throw new Error('Production email requires SMTP_URL, MAIL_FROM and REPLY_TO. Set MAIL_DISABLED=1 for intake with private recovery links.');
@@ -74,7 +78,7 @@ export function loadConfig(env = process.env) {
     production, port, host, publicUrl: publicUrl.origin, secureCookie: publicUrl.protocol === 'https:',
     mailEnabled: !mailDisabled,
     trustProxy, dataDir, smtpUrl: env.SMTP_URL || '', mailFrom: env.MAIL_FROM || 'ArtSouthwest <preview@example.test>',
-    replyTo: env.REPLY_TO || '', mailKey: Buffer.from(hexKey, 'hex'), reviewerPassword,
+    replyTo: env.REPLY_TO || '', mailKey: Buffer.from(hexKey, 'hex'), reviewerPassword, reviewerTeamAccess,
     reviewerId: env.REVIEWER_ID || 'editor', callbackOwner: env.CALLBACK_OWNER || 'taos-city-lead',
   };
 }

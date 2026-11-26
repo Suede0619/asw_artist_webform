@@ -11,7 +11,10 @@ function Login({ onLogin }) {
     setBusy(true);
     setError(null);
     try {
-      await request('/review/login', 'POST', { password });
+      const linkKey = new URLSearchParams(window.location.hash.slice(1)).get('team');
+      const teamKey = /^[\w-]{43}$/.test(linkKey || '') ? linkKey : undefined;
+      await request('/review/login', 'POST', { password, teamKey });
+      if (teamKey) window.history.replaceState(null, '', window.location.pathname + window.location.search);
       await onLogin();
     } catch (failure) {
       setError(failure);

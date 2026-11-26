@@ -298,8 +298,11 @@ export function createApp(config, { sendMail, serveUi = true, getPublications, o
   api.post('/review/login', async (req, res) => {
     await requireRate(req, 'review-login', 15);
     if (!config.reviewerPassword) throw new IntakeError(503, 'The review desk needs a configured password.');
-    const { password } = z.object({ password: z.string().max(400) }).parse(req.body);
-    if (!sameSecret(password, config.reviewerPassword)) throw new IntakeError(401, 'That password didn’t match.');
+    const { password, teamKey } = z.object({ password: z.string().max(400), teamKey: token.optional() }).parse(req.body);
+    const staffSignIn = sameSecret(password, config.reviewerPassword);
+    const teamSignIn = teamKey && config.reviewerTeamAccess &&
+      sameSecret(teamKey + ':' + password, config.reviewerTeamAccess);
+    if (!staffSignIn && !teamSignIn) throw new IntakeError(401, 'That password didn’t match.');
     const tokenValue = secret();
     const now = Date.now();
     const raw = cookie(req, REVIEWER_COOKIE);

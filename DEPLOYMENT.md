@@ -18,6 +18,8 @@ Three DNS-only CNAME records in Cloudflare route to the Render service. Render m
 
 Keep the reviewer password in a password manager and in the Render service’s `REVIEWER_PASSWORD` secret. Add individual staff identities before expanding access to the team. Use the review desk for routine work and restrict raw Neon Console access to operators.
 
+For temporary team access, set `REVIEWER_TEAM_ACCESS` to a 32-byte base64url token, a colon and the temporary password. Share the private `/review#team=<token>` link and the temporary password with the intended reviewers. The link and password are both required. Remove the temporary environment variable and redeploy to end new team sign-ins. Existing sessions expire after eight hours.
+
 ## Artist access and the first campaign
 
 Collectors browse without signing in. Artists can begin intake without an account or early email check. They can return in the original browser, or choose **Save a private link** in the submission receipt or **Manage submission**. A saved link works once, expires after 180 days and grants the same submission on another device. Artists can create a new link after redeeming one. Published artists can use the same form to submit a revision. The current version stays visible until staff approve the revision.

@@ -43,10 +43,10 @@ let publications;
 const publicationCallbacks = { onPublicationChange: () => publications.invalidate() };
 const mailEnabled = config.mailEnabled && Boolean(config.smtpUrl);
 const artist = createApp(atOrigin(artistUrl, {
-  catalogDir: null, mailEnabled, reviewerPassword: '',
+  catalogDir: null, mailEnabled, reviewerPassword: '', reviewerTeamAccess: '',
 }), publicationCallbacks);
 const curator = createApp(atOrigin(curatorUrl, { catalogDir: null, mailEnabled }), publicationCallbacks);
-const catalog = createApp(atOrigin(catalogUrl, { mailEnabled: false, reviewerPassword: '' }), {
+const catalog = createApp(atOrigin(catalogUrl, { mailEnabled: false, reviewerPassword: '', reviewerTeamAccess: '' }), {
   serveUi: false, getPublications: () => publications.read(),
 });
 publications = createPublicationFeed(catalog.db);

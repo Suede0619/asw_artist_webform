@@ -22,12 +22,12 @@ const createJpeg = (width) => sharp({ create: {
   width, height: 720, channels: 3, background: '#a36a56',
 } }).jpeg().toBuffer();
 
-async function setup(t, customDelivery) {
+async function setup(t, customDelivery, env = {}) {
   const root = resolve('data/test');
   await mkdir(root, { recursive: true });
   const folder = await mkdtemp(join(root, 'api-'));
   const deliveries = [];
-  const config = loadConfig({ DATA_DIR: folder, REVIEWER_PASSWORD: 'fictional-review-password-for-tests' });
+  const config = loadConfig({ DATA_DIR: folder, REVIEWER_PASSWORD: 'fictional-review-password-for-tests', ...env });
   const instance = createApp(config, { serveUi: false,
     sendMail: customDelivery || (async (message) => { deliveries.push(message); }) });
   const server = await new Promise((done, reject) =>
@@ -75,6 +75,22 @@ async function setup(t, customDelivery) {
 function artistHeader(app) {
   return { 'X-Application-Id': app.id };
 }
+
+test('a temporary review password works only with the configured team link', async (t) => {
+  const teamKey = 'x'.repeat(43);
+  const password = 'test-team-password';
+  const app = await setup(t, undefined, { REVIEWER_TEAM_ACCESS: teamKey + ':' + password });
+  const reviewer = app.client();
+  assert.equal((await reviewer('/review/login', 'POST', { password })).status, 401);
+  assert.equal((await reviewer('/review/login', 'POST', { password, teamKey: 'y'.repeat(43) })).status, 401);
+  assert.equal((await reviewer('/review/login', 'POST', { password: 'wrong', teamKey })).status, 401);
+  assert.equal((await reviewer('/review')).status, 401);
+  assert.equal((await reviewer('/review/login', 'POST', { password, teamKey })).status, 200);
+  assert.equal((await reviewer('/review')).status, 200);
+  assert.equal((await reviewer('/review/logout', 'POST')).status, 204);
+  assert.equal((await reviewer('/review')).status, 401);
+  assert.equal((await reviewer('/review/login', 'POST', { password: app.config.reviewerPassword })).status, 200);
+});
 
 test('a direct draft saves email with the profile and only opens through its own session or link', async (t) => {
   const app = await setup(t);
