@@ -6,7 +6,7 @@ The intake collects artist profiles, portraits and three to five available works
 
 [Open the ArtSouthwest artist webform](https://artist.artsouthwest.com/?campaign=taos-artists).
 
-The catalog lives at [artsouthwest.com](https://artsouthwest.com/) and the private staff desk at [curator.artsouthwest.com](https://curator.artsouthwest.com/). The three sites use Neon Postgres and private Object Storage behind the named Cloudflare tunnel on the Mac. Artists can start immediately, return in the same browser, or save a one-time private link. Email receipts and emailed sign-in links require a configured transactional sender.
+The catalog lives at [artsouthwest.com](https://artsouthwest.com/) and the private staff desk at [curator.artsouthwest.com](https://curator.artsouthwest.com/). The three sites use Neon Postgres and private Object Storage. The named Cloudflare tunnel still connects them to the Mac. The Render Blueprint packages the three services together for the managed-host cutover. Artists can start immediately, return in the same browser, or save a one-time private link. Email receipts and emailed sign-in links require a configured transactional sender.
 
 ## Local preview
 
@@ -38,7 +38,7 @@ The private desk shows last activity and upload history. An upload start without
 
 See the [artsouthwest.com deployment instructions](DEPLOYMENT.md) and [Render Blueprint](render.yaml).
 
-Use one Node service behind a TLS proxy that serves the configured public origin. Keep the application port private to the proxy. Allow at least 12 MiB and 90 seconds for uploads. Configure `TRUST_PROXY_HOPS=1` if exactly one trusted reverse proxy sits in front. The [Dockerfile](Dockerfile) runs the service as a non-root user. The SQLite deployment uses one replica with the database and media on a mounted disk that supports local filesystem locks.
+Use one Node service behind a TLS proxy that serves all three configured origins. Run `npm run build:catalog` to build the pinned public catalog release for managed hosting. Keep the application port private to the proxy. Allow at least 12 MiB and 90 seconds for uploads. Configure `TRUST_PROXY_HOPS=1` if exactly one trusted reverse proxy sits in front. The [Dockerfile](Dockerfile) runs the service as a non-root user. The SQLite deployment uses one replica with the database and media on a mounted disk that supports local filesystem locks.
 
 ### Neon Postgres and Object Storage
 
@@ -55,7 +55,7 @@ The Neon schema command initializes tables. Use the [migration and verification 
 | `DATA_DIR` | Mounted private directory. Use `/app/data` in the container. |
 | `REVIEWER_PASSWORD` | High-entropy secret, at least 24 characters, for the pilot reviewer account. Store outside Git. |
 | `REVIEWER_ID`, `CALLBACK_OWNER` | Names used in the internal audit and callback queue. Staff coverage belongs to the project team. |
-| `SMTP_URL`, `MAIL_FROM`, `REPLY_TO` | Transactional mail transport, verified sender and monitored replies. Use an authenticated transactional sender. |
+| `SMTP_URL`, `MAIL_FROM`, `REPLY_TO` | Transactional mail transport, verified sender and monitored replies. Use `MAIL_DISABLED=1` during the private-link pilot. |
 | `MAIL_QUEUE_KEY` | 32 random bytes as 64 hexadecimal characters. Keep it stable across deploys and preserve it securely for restore. |
 
 Set secrets through your host. Generate a random queue key with `openssl rand -hex 32`. Start the process after building. The app exposes `/api/health`. Test one fictional submission and real mailbox delivery, including resume and receipt, before sending the campaign. The Mailchimp button points to `https://artist.artsouthwest.com/?campaign=taos-artists`. Send the invitation only to contacts with documented permission. No campaign sending is built into the form.

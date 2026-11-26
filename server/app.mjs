@@ -22,13 +22,16 @@ const uuid = z.uuid();
 const token = z.string().regex(/^[\w-]{43}$/);
 const eventRequest = z.object({ campaign: z.string().optional(), session: uuid });
 
-export function createApp(config, { sendMail, serveUi = true } = {}) {
+export function createApp(config, { sendMail, serveUi = true, getPublications, onPublicationChange } = {}) {
   const db = createStore(config);
   const media = config.objectStorage ? createObjectMedia(config.objectStorage) : null;
   const intake = createIntake(db, config);
   const outbox = createOutbox(db, config, sendMail);
   const app = express();
   let activeUploads = 0;
+  async function updatePublications() {
+    await onPublicationChange?.().catch(() => console.error('The public catalog will refresh on its next read.'));
+  }
   app.disable('x-powered-by');
   if (config.trustProxy) app.set('trust proxy', config.trustProxy);
 
@@ -189,7 +192,9 @@ export function createApp(config, { sendMail, serveUi = true } = {}) {
   api.post('/application/report', async (req, res) => {
     const id = await writableArtist(req);
     const input = reportSchema.parse(req.body);
-    res.json(await intake.report(id, input));
+    const result = await intake.report(id, input);
+    if (['sale', 'withdrawal'].includes(input.kind)) await updatePublications();
+    res.json(result);
   });
 
   const assetByRequest = db.prepare(`SELECT id,width,height,bytes,role FROM assets
@@ -314,7 +319,9 @@ export function createApp(config, { sendMail, serveUi = true } = {}) {
   api.get('/review/applications/:id', reviewer, async (req, res) => res.json(await intake.detail(uuid.parse(req.params.id))));
   api.post('/review/applications/:id', reviewer, async (req, res) => {
     const id = uuid.parse(req.params.id);
-    await intake.review(id, reviewerActionSchema.parse(req.body));
+    const decision = reviewerActionSchema.parse(req.body);
+    await intake.review(id, decision);
+    if (['publish', 'pause'].includes(decision.action)) await updatePublications();
     res.json(await intake.detail(id));
   });
   api.get('/review/assets/:id', reviewer, async (req, res) => {
@@ -340,8 +347,9 @@ export function createApp(config, { sendMail, serveUi = true } = {}) {
   }
   api.get('/catalog', async (_req, res) => {
     publicHeaders(res);
-    const artists = (await db.prepare('SELECT data FROM publications ORDER BY published_at DESC').all())
-      .map((row) => JSON.parse(row.data));
+    const artists = getPublications ? getPublications() :
+      (await db.prepare('SELECT data FROM publications ORDER BY published_at DESC').all())
+        .map((row) => JSON.parse(row.data));
     res.json({ version: 1, artists });
   });
   api.get('/catalog/media/:id', async (req, res) => {

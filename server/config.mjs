@@ -14,6 +14,7 @@ function localKey(directory) {
 
 export function loadConfig(env = process.env) {
   const production = env.NODE_ENV === 'production';
+  const mailDisabled = env.MAIL_DISABLED === '1';
   const port = Number(env.PORT || 4080);
   const host = env.HOST || '127.0.0.1';
   let publicUrl;
@@ -33,9 +34,11 @@ export function loadConfig(env = process.env) {
       !Number.isInteger(trustProxy) || trustProxy < 0 || trustProxy > 3) {
     throw new Error('Configure a valid PORT and TRUST_PROXY_HOPS (0–3).');
   }
-  if (production && (publicUrl.protocol !== 'https:' || reviewerPassword.length < 24 ||
-      !env.SMTP_URL || !env.MAIL_FROM || !env.REPLY_TO || !env.MAIL_QUEUE_KEY || !env.CALLBACK_OWNER)) {
-    throw new Error('Production requires HTTPS PUBLIC_URL, REVIEWER_PASSWORD (24+ characters), SMTP_URL, MAIL_FROM, REPLY_TO, MAIL_QUEUE_KEY and CALLBACK_OWNER.');
+  if (production && (publicUrl.protocol !== 'https:' || reviewerPassword.length < 24 || !env.MAIL_QUEUE_KEY || !env.CALLBACK_OWNER)) {
+    throw new Error('Production requires HTTPS PUBLIC_URL, REVIEWER_PASSWORD (24+ characters), MAIL_QUEUE_KEY and CALLBACK_OWNER.');
+  }
+  if (production && !mailDisabled && (!env.SMTP_URL || !env.MAIL_FROM || !env.REPLY_TO)) {
+    throw new Error('Production email requires SMTP_URL, MAIL_FROM and REPLY_TO. Set MAIL_DISABLED=1 for intake with private recovery links.');
   }
   if (env.SMTP_URL) {
     try {
@@ -69,6 +72,7 @@ export function loadConfig(env = process.env) {
     itineraryKey: env.ITINERARY_OPENAI_API_KEY || '',
     itineraryModel: env.ITINERARY_OPENAI_MODEL || 'gpt-4o-mini',
     production, port, host, publicUrl: publicUrl.origin, secureCookie: publicUrl.protocol === 'https:',
+    mailEnabled: !mailDisabled,
     trustProxy, dataDir, smtpUrl: env.SMTP_URL || '', mailFrom: env.MAIL_FROM || 'ArtSouthwest <preview@example.test>',
     replyTo: env.REPLY_TO || '', mailKey: Buffer.from(hexKey, 'hex'), reviewerPassword,
     reviewerId: env.REVIEWER_ID || 'editor', callbackOwner: env.CALLBACK_OWNER || 'taos-city-lead',

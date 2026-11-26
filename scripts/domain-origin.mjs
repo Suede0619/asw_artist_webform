@@ -1,13 +1,15 @@
 import { createServer } from 'node:http';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import express from 'express';
 import { createApp } from '../server/app.mjs';
 import { loadConfig } from '../server/config.mjs';
 import { cookie } from '../server/security.mjs';
+import { createPublicationFeed } from '../server/publications.mjs';
 
 process.umask(0o077);
-const host = '127.0.0.1';
+const host = process.env.HOST || '127.0.0.1';
 const dataDir = resolve(process.env.DATA_DIR || 'data/callback-intake');
 const artistUrl = process.env.ARTIST_ORIGIN || 'https://artist.artsouthwest.com';
 const curatorUrl = process.env.CURATOR_ORIGIN || 'https://curator.artsouthwest.com';
@@ -23,7 +25,11 @@ const env = {
 };
 const config = loadConfig(env);
 if (!config.databaseUrl) throw new Error('The production origin requires Neon and Object Storage.');
-if (!config.catalogDir || !existsSync(resolve(config.catalogDir, 'index.html'))) throw new Error('Build and configure CATALOG_DIR.');
+if (!config.catalogDir) throw new Error('Build and configure CATALOG_DIR.');
+const rendererPath = resolve(config.catalogDir, 'catalog-renderer.mjs');
+const renderer = existsSync(rendererPath) ? (await import(pathToFileURL(rendererPath))).catalog : null;
+const publicCatalogDir = renderer ? resolve(config.catalogDir, 'public') : config.catalogDir;
+if (!existsSync(resolve(publicCatalogDir, 'index.html'))) throw new Error('Build the catalog before starting the app.');
 if (config.reviewerPassword.length < 24) throw new Error('Configure the private reviewer password.');
 
 function atOrigin(url, overrides = {}) {
@@ -33,11 +39,17 @@ function atOrigin(url, overrides = {}) {
     secureCookie: origin.protocol === 'https:', ...overrides };
 }
 
+let publications;
+const publicationCallbacks = { onPublicationChange: () => publications.invalidate() };
+const mailEnabled = config.mailEnabled && Boolean(config.smtpUrl);
 const artist = createApp(atOrigin(artistUrl, {
-  catalogDir: null, mailEnabled: Boolean(config.smtpUrl), reviewerPassword: '',
-}));
-const curator = createApp(atOrigin(curatorUrl, { catalogDir: null, mailEnabled: Boolean(config.smtpUrl) }));
-const catalog = createApp(atOrigin(catalogUrl, { mailEnabled: false, reviewerPassword: '' }), { serveUi: false });
+  catalogDir: null, mailEnabled, reviewerPassword: '',
+}), publicationCallbacks);
+const curator = createApp(atOrigin(curatorUrl, { catalogDir: null, mailEnabled }), publicationCallbacks);
+const catalog = createApp(atOrigin(catalogUrl, { mailEnabled: false, reviewerPassword: '' }), {
+  serveUi: false, getPublications: () => publications.read(),
+});
+publications = createPublicationFeed(catalog.db);
 const sites = new Map();
 const artistAssets = /^\/(?:assets\/[^/]+|adobe-door\.jpg|ArtSouthwest-wordmark\.png|ArtSouthwest\.svg|fonts\/[^/]+)$/;
 const artistPages = new Set(['/', '/apply', '/start', '/resume', '/callback', '/privacy']);
@@ -110,7 +122,18 @@ catalogSite.use((req, res, next) => {
   if (req.path.startsWith('/api/')) return noPage(res);
   next();
 });
-catalogSite.use(express.static(config.catalogDir, { dotfiles: 'deny', cacheControl: false }));
+if (renderer) {
+  catalogSite.use('/assets', express.static(resolve(publicCatalogDir, 'assets'), {
+    dotfiles: 'deny', maxAge: '1d', setHeaders: (res, file) => {
+      if (/catalog-[a-f0-9]+\.(css|mjs)$/.test(file)) res.set('Cache-Control', 'public, max-age=31536000, immutable');
+    },
+  }));
+  catalogSite.get(/^(?!\/assets\/).*$/, (req, res) => {
+    const path = getPage(req);
+    const page = renderer.render(path, renderer.usesPublications(path) ? publications.read() : [], { artistOrigin: artistUrl });
+    res.status(page.status).type('html').send(page.html);
+  });
+} else catalogSite.use(express.static(publicCatalogDir, { dotfiles: 'deny', cacheControl: false }));
 catalogSite.use((_req, res) => noPage(res));
 catalogSite.use((error, _req, res, next) => {
   if (res.headersSent) return next(error);
@@ -123,6 +146,7 @@ const appInstances = [artist, curator, catalog];
 try {
   const schema = await artist.db.prepare('SELECT version FROM asw_schema_migrations WHERE version=1').get();
   if (!schema) throw new Error('Run the Neon schema migration first.');
+  await publications.refresh();
 } catch (error) {
   await Promise.all(appInstances.map(instance => instance.db.close()));
   console.error('Neon startup check failed.', error.code || error.name);
@@ -130,6 +154,9 @@ try {
 }
 
 const server = createServer((req, res) => {
+  if (req.method === 'GET' && req.url === '/healthz') {
+    return res.writeHead(200, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' }).end('ok');
+  }
   const route = sites.get(String(req.headers.host || '').toLowerCase());
   if (route) return route(req, res);
   res.writeHead(404, { 'Content-Type': 'text/plain' }).end('Page not found.');
@@ -140,7 +167,7 @@ server.listen(config.port, host, () => {
   console.log('ArtSouthwest catalog, artist submissions, and the curator desk are ready on private port ' + config.port + '.');
   console.log('Storage: Neon Postgres and private Object Storage.');
 });
-const queue = config.smtpUrl ? setInterval(() => {
+const queue = mailEnabled ? setInterval(() => {
   artist.outbox.pump().catch(() => console.error('The transactional email queue needs attention.'));
 }, 2000) : null;
 queue?.unref();

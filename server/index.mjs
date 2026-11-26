@@ -17,14 +17,14 @@ if (config.databaseUrl) {
 const server = app.listen(config.port, config.host, () => {
   console.log('ArtSouthwest intake listening on ' + config.publicUrl);
   if (config.databaseUrl) console.log('Storage: Neon Postgres and private Object Storage.');
-  if (!config.smtpUrl) console.log('Preview email is written to the private data directory.');
+  if (config.mailEnabled && !config.smtpUrl) console.log('Preview email is written to the private data directory.');
 });
 server.requestTimeout = 90_000;
 server.headersTimeout = 20_000;
-const interval = setInterval(() => {
+const interval = config.mailEnabled ? setInterval(() => {
   outbox.pump().catch(() => console.error('The transactional email queue needs attention.'));
-}, 2000);
-interval.unref();
+}, 2000) : null;
+interval?.unref();
 function stop() {
   clearInterval(interval);
   server.close(async () => {

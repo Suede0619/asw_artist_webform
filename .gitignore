@@ -13,3 +13,5 @@ playwright-report/
 *.sqlite-shm
 *.sqlite-wal
 .neon
+
+build/

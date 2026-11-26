@@ -6,7 +6,7 @@
 | Artist invitation, intake and revisions | [artist.artsouthwest.com](https://artist.artsouthwest.com/?campaign=taos-artists) |
 | Password-protected staff desk | [curator.artsouthwest.com](https://curator.artsouthwest.com/) |
 
-The named Cloudflare tunnel forwards the three hostnames to the private Node origin at port 4280. Host-based route checks protect the artist and staff APIs. Artist and staff session cookies belong to their own hosts. The campaign address on the former apex redirects to the new invitation. An existing artist who opens the old form URL in the original browser can transfer a valid session once with a short-lived private link. The live service uses Neon Postgres and private Object Storage.
+The named Cloudflare tunnel forwards the three hostnames to the private Node origin at port 4282. Host-based route checks protect the artist and staff APIs. Artist and staff session cookies belong to their own hosts. The campaign address on the former apex redirects to the new invitation. An existing artist who opens the old form URL in the original browser can transfer a valid session once with a short-lived private link. The live service uses Neon Postgres and private Object Storage.
 
 ## Verify a submission
 
@@ -33,13 +33,19 @@ Use `https://artist.artsouthwest.com/?campaign=taos-artists` for the invitation 
 5. Build the catalog, set `CATALOG_DIR` to its output and start the new origin with `npm run start:domains`. Verify each hostname on loopback before pointing all three tunnel ingress routes at that origin. The service disables email links until SMTP is configured.
 6. Verify HTTPS, the saved reference and its images, callback queue, anonymous access restrictions, and a new test draft against the live service. Smoke-test before reopening invitations. If verification fails before accepting new Neon writes, stop the new origin and restart the recorded SQLite origin. If Neon has received new writes, pause writes and reconcile those records before rolling back.
 
-Build `production-dist` in [the website repository](https://github.com/Suede0619/sw-arts-website). The apex serves this directory and the approved API. The old `/discover/` path redirects to the catalog home.
+Build `production-release` in [the website repository](https://github.com/Suede0619/sw-arts-website). The apex renders browse pages on the server and refreshes its approved feed after a curator decision, a sale or a withdrawal. It serves fingerprinted catalog assets with long cache lifetimes. The old `/discover/` path redirects to the catalog home.
 
-## Hosting, access and email
+## Always-on hosting
 
-The tunnel depends on the Mac’s availability. Move the origin to managed Node hosting for independence from the Mac. Set up named staff access before sharing the desk broadly and test transactional email using the verified sender. Set the exact public origin, upstream proxy hops, reviewer identity and secret, callback owner, stable mail encryption key, and the Postgres and Object Storage credentials in the host’s secret settings. Point the existing domain to the chosen host after its HTTPS endpoint and data persistence pass verification.
+The [Render Blueprint](render.yaml) builds one Node web service for all three hostnames. The build pulls the exact public catalog revision recorded in `catalog-release.txt`, generates the catalog bundle and checks the server on `/healthz`. The service reads existing Neon Postgres records and Object Storage. It needs no persistent disk. Render lists the 512 MB compute plan at $7/month before any separately billed workspace or usage charges. [Render pricing](https://render.com/pricing) · [Render compute plans](https://render.com/docs/compute-plans).
 
-The existing [Render Blueprint](render.yaml) is a SQLite deployment template. Review the host’s displayed charges and configure a Neon-backed service before using it for this release. [Render custom domains](https://render.com/docs/custom-domains).
+1. Approve the compute plan and authorize the Render workspace to create the service from the intake repository.
+2. Set the existing production `DATABASE_URL`, `AWS_ENDPOINT_URL_S3`, `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `REVIEWER_PASSWORD` and `MAIL_QUEUE_KEY` in Render’s secret settings. Use the current deployed reviewer password and encryption key so the change of host preserves the staff workflow. Leave `MAIL_DISABLED=1` until a verified sender is configured.
+3. Verify the staged service is healthy at `/healthz`. Snapshot the three live DNS records. Register the three custom domains on the new service, then move the three CNAME targets to it with Cloudflare proxying off for certificate issuance. Retain the current tunnel so the records can be restored if a verification check fails. [Render Cloudflare instructions](https://render.com/docs/configure-cloudflare-dns).
+4. Recheck each domain over TLS. On the catalog, confirm the first HTML response contains the visible sections. On intake and review, confirm origin checks, uploads, approved content, private image access and one-time links. Use fictional test records and clean them up afterward. Retire the Mac origin only after these checks pass.
+5. When adding email, configure `SMTP_URL`, `MAIL_FROM` and `REPLY_TO`, then set `MAIL_DISABLED=0` and test delivery. Add named staff access before sharing the desk broadly.
+
+GitHub holds the source and GitHub Pages serves the design prototype. The live app uses Node for image processing, sessions, review and the mail worker. A static-only deployment would cover browsing pages. [GitHub Pages limits](https://docs.github.com/en/pages/getting-started-with-github-pages/github-pages-limits).
 
 For the itinerary, keep the optional `ITINERARY_OPENAI_API_KEY` on the server and set a project budget at the provider. The app validates proposed stop IDs against its own list and applies request limits. The route builder keeps offering suggested itineraries without model access. Test the model, unavailable stop flow and choices with the interaction designer before representing it as live AI.
 
