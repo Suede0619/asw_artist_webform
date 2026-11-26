@@ -9,6 +9,8 @@ import { callbackSchema, campaignId, cleanEmail, MAX_BYTES, reportSchema, review
 import { createStore } from './store.mjs';
 import { createObjectMedia } from './object-media.mjs';
 import { IntakeError } from './errors.mjs';
+import { createEditorial } from './editorial.mjs';
+import { installEditorial } from './editorial-routes.mjs';
 import { createIntake, editable } from './intake.mjs';
 import { itineraryRequest, planItinerary } from './itinerary.mjs';
 import { createOutbox, retryMail } from './mail.mjs';
@@ -22,7 +24,7 @@ const uuid = z.uuid();
 const token = z.string().regex(/^[\w-]{43}$/);
 const eventRequest = z.object({ campaign: z.string().optional(), session: uuid });
 
-export function createApp(config, { sendMail, serveUi = true, getPublications, onPublicationChange } = {}) {
+export function createApp(config, { sendMail, serveUi = true, getPublications, onPublicationChange, onEditorialChange, cacheCalendar } = {}) {
   const db = createStore(config);
   const media = config.objectStorage ? createObjectMedia(config.objectStorage) : null;
   const intake = createIntake(db, config);
@@ -42,7 +44,9 @@ export function createApp(config, { sendMail, serveUi = true, getPublications, o
       'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
       'X-Robots-Tag': 'noindex, nofollow',
       'Cross-Origin-Resource-Policy': 'same-origin',
-      'Content-Security-Policy': "default-src 'self'; img-src 'self' blob:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'",
+      'Content-Security-Policy': "default-src 'self'; img-src 'self' blob:" +
+        (config.editorial && config.reviewerPassword ? ' ' + config.editorial.origin + "; style-src 'self' 'unsafe-inline'" : '') +
+        "; form-action 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'",
     });
     if (config.secureCookie) res.set('Strict-Transport-Security', 'max-age=31536000');
     next();
@@ -318,7 +322,7 @@ export function createApp(config, { sendMail, serveUi = true, getPublications, o
     res.clearCookie(REVIEWER_COOKIE, cookieOptions('/api/review')).sendStatus(204);
   });
 
-  api.get('/review', reviewer, async (_req, res) => res.json(await intake.overview()));
+  api.get('/review', reviewer, async (_req, res) => res.json({ ...await intake.overview(), editorialEnabled:Boolean(config.editorial) }));
   api.get('/review/applications/:id', reviewer, async (req, res) => res.json(await intake.detail(uuid.parse(req.params.id))));
   api.post('/review/applications/:id', reviewer, async (req, res) => {
     const id = uuid.parse(req.params.id);
@@ -363,6 +367,8 @@ export function createApp(config, { sendMail, serveUi = true, getPublications, o
     publicHeaders(res);
     await imageResponse(res, id);
   });
+  const editorial = config.editorial ? createEditorial({ db,config,media,imageResponse,cacheCalendar }) : null;
+  const editorialRoutes = editorial && installEditorial({ app,api,editorial,config,reviewer,requireRate,publicHeaders,getPublications,onEditorialChange });
   api.use((_req, _res, next) => next(new IntakeError(404, 'Not found.')));
   app.use('/api', api);
 
@@ -410,5 +416,5 @@ export function createApp(config, { sendMail, serveUi = true, getPublications, o
     return res.status(500).json({ message: 'We couldn’t finish that request. Please try again.', incident });
   });
 
-  return { app, db: db.sqlite || db, intake, outbox };
+  return { app, db: db.sqlite || db, intake, outbox, editorial, newsletter: editorialRoutes?.newsletter };
 }

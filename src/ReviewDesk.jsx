@@ -1,3 +1,4 @@
+import { EditorialDesk } from './EditorialDesk.jsx';
 import React, { useEffect, useState } from 'react';
 import { request } from './api.mjs';
 import { Check, dateText, ErrorBox, Field, Panel, statuses, TextArea } from './ui.jsx';
@@ -240,7 +241,8 @@ export function ReviewDesk() {
   return <Panel title="Staff review" narrow={false}>
     <div className="desk-bar">
       <nav aria-label="Review desk sections">
-        {[['submissions', 'Submissions'], ['callbacks', 'Call requests'], ['mail', 'Email queue']].map(([key, label]) =>
+        {[['submissions', 'Submissions'], ['callbacks', 'Call requests'], ['mail', 'Email queue'],
+          ...(dashboard.editorialEnabled ? [['editorial','Editorial']] : [])].map(([key, label]) =>
           <button className="text-button" type="button" key={key} aria-current={section === key ? 'page' : undefined}
             onClick={() => { setSection(key); setApplication(null); setError(null); }}>{label}</button>)}
       </nav>
@@ -250,7 +252,7 @@ export function ReviewDesk() {
       </div>
     </div>
     <ErrorBox error={error} />
-    {!application && <>
+    {!application && section !== 'editorial' && <>
       <p className="field-hint">Storage {dashboard.storage === 'Neon' ? 'Neon Postgres and Object Storage' : 'Local SQLite and media'}</p>
       <label className="metric-source" htmlFor="metric-source">Metrics source
         <select id="metric-source" value={metricSource} onChange={(event) => setMetricSource(event.target.value)}>
@@ -291,6 +293,7 @@ export function ReviewDesk() {
       {dashboard.callbacks.length === 0 && <p>No call requests yet.</p>}
       {dashboard.callbacks.map((record) => <CallbackCard key={record.id} record={record} refresh={refresh} />)}
     </div>}
+    {section === 'editorial' && <EditorialDesk />}
     {section === 'mail' && <div className="desk-list">
       <p>The queue retries temporary failures. Review failed messages before retrying.</p>
       <button className="text-button left" type="button" onClick={() => refresh().catch(setError)}>Refresh queue</button>

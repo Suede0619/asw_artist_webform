@@ -1,0 +1,21 @@
+[
+  {
+    "url": "https://harwoodmuseum.org/event-type/harwood-events/",
+    "city": "taos",
+    "venue": "Harwood Museum of Art",
+    "timeZone": "America/Denver"
+  },
+  {
+    "url": "https://harwoodmuseum.org/art/exhibitions/",
+    "city": "taos",
+    "venue": "Harwood Museum of Art",
+    "adapter": "harwood-exhibitions"
+  },
+  {
+    "url": "https://www.sitesantafe.org/en/exhibitions/",
+    "city": "santa-fe",
+    "venue": "SITE SANTA FE",
+    "adapter": "site-santa-fe",
+    "imageHosts": ["cdn.sanity.io"]
+  }
+]

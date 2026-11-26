@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import pg from 'pg';
 import { openDatabase } from './database.mjs';
@@ -5,6 +6,7 @@ import { openDatabase } from './database.mjs';
 export function createStore(config) {
   const postgres = Boolean(config.databaseUrl);
   const sqlite = postgres ? null : openDatabase(config.dataDir);
+  if (sqlite && config.editorial) sqlite.exec(readFileSync(new URL('./schema/002-editorial.sql', import.meta.url), 'utf8'));
   const pool = postgres ? new pg.Pool({
     connectionString: verifiedPostgresUrl(config.databaseUrl),
     max: 5,

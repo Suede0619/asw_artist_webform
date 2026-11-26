@@ -207,3 +207,16 @@ legend { margin: 0 0 .85rem; font-family: var(--serif); font-size: 1.35rem; }
 @media (max-width: 330px) {
   .invitation { --invitation-inset: .75rem; }
 }
+
+.editorial-desk { display:grid; gap:1.25rem; margin:1rem 0; }
+.editorial-desk [aria-pressed="true"] { text-decoration:underline; text-underline-offset:.25em; }
+.editorial-review { display:grid; gap:1rem; }
+.editorial-facts { display:grid; grid-template-columns:repeat(auto-fit,minmax(10rem,1fr)); gap:1rem; margin:0; }
+.editorial-facts dt { font-size:.82rem; font-weight:700; }
+.editorial-facts dd { margin:.25rem 0 0; overflow-wrap:anywhere; }
+.editorial-review-field, .editorial-photo-form { display:grid; gap:.55rem; }
+.editorial-review-field textarea, .editorial-review-field select { font:inherit; padding:.65rem; }
+.editorial-preview-image { max-width:min(100%,30rem); height:auto; }
+.newsletter-preview { display:block; width:100%; height:40rem; border:1px solid #dcd5c9; background:#f8f5ee; }
+.newsletter-preview + details, .newsletter-preview ~ .check-field { margin-block: .8rem; }
+.weekly-plain { white-space:pre-wrap; overflow-wrap:anywhere; }

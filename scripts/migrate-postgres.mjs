@@ -15,12 +15,13 @@ try {
   await client.query('BEGIN');
   await client.query('SELECT pg_advisory_xact_lock(419204, 1)');
   await client.query('CREATE TABLE IF NOT EXISTS asw_schema_migrations (version integer PRIMARY KEY)');
-  if (!(await client.query('SELECT 1 FROM asw_schema_migrations WHERE version=1')).rowCount) {
-    await client.query(await readFile(new URL('../server/schema/001-intake.sql', import.meta.url), 'utf8'));
-    await client.query('INSERT INTO asw_schema_migrations(version) VALUES(1)');
+  for (const [version, file] of [[1, '001-intake.sql'], [2, '002-editorial.sql']]) {
+    if ((await client.query('SELECT 1 FROM asw_schema_migrations WHERE version=$1', [version])).rowCount) continue;
+    await client.query(await readFile(new URL('../server/schema/' + file, import.meta.url), 'utf8'));
+    await client.query('INSERT INTO asw_schema_migrations(version) VALUES($1)', [version]);
   }
   await client.query('COMMIT');
-  console.log('Postgres intake schema version 1 ready.');
+  console.log('Postgres intake and editorial schemas ready.');
 } catch (error) {
   await client.query('ROLLBACK').catch(() => {});
   console.error('Postgres schema migration failed.', error.code || error.name);

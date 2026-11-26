@@ -45,16 +45,18 @@ const mailEnabled = config.mailEnabled && Boolean(config.smtpUrl);
 const artist = createApp(atOrigin(artistUrl, {
   catalogDir: null, mailEnabled, reviewerPassword: '', reviewerTeamAccess: '',
 }), publicationCallbacks);
-const curator = createApp(atOrigin(curatorUrl, { catalogDir: null, mailEnabled }), publicationCallbacks);
+const curator = createApp(atOrigin(curatorUrl, { catalogDir: null, mailEnabled }), {
+  ...publicationCallbacks, onEditorialChange: () => catalog.editorial?.invalidateCalendar(),
+});
 const catalog = createApp(atOrigin(catalogUrl, { mailEnabled: false, reviewerPassword: '', reviewerTeamAccess: '' }), {
-  serveUi: false, getPublications: () => publications.read(),
+  serveUi: false, getPublications: () => publications.read(), cacheCalendar: true,
 });
 publications = createPublicationFeed(catalog.db);
 const sites = new Map();
 const artistAssets = /^\/(?:assets\/[^/]+|adobe-door\.jpg|ArtSouthwest-wordmark\.png|ArtSouthwest\.svg|fonts\/[^/]+)$/;
 const artistPages = new Set(['/', '/apply', '/start', '/resume', '/callback', '/privacy']);
 const artistApi = /^\/api\/(?:health|visit|start|callbacks|session\/(?:redeem|logout)|application(?:\/(?:submit|revise|link|saved-link|report|assets(?:\/[^/]+)?))?)\/?$/;
-const catalogApi = /^\/api\/(?:health|catalog(?:\/media\/[^/]+)?|itinerary)\/?$/;
+const catalogApi = /^\/api\/(?:health|catalog(?:\/media\/[^/]+)?|itinerary|editorial(?:\/.*)?)\/?$/;
 const reviewApi = /^\/api\/review(?:\/.*)?$/;
 const legacyArtistPages = new Set(['/apply', '/start', '/resume', '/callback', '/privacy']);
 const hostOf = (url) => new URL(url).host;
@@ -123,6 +125,9 @@ catalogSite.use((req, res, next) => {
   next();
 });
 if (renderer) {
+  if (config.editorial) catalogSite.get('/ArtSouthwest-wordmark.png', (_req,res) => {
+    res.sendFile(resolve('dist/ArtSouthwest-wordmark.png'),{ maxAge:'1h' });
+  });
   catalogSite.use('/assets', express.static(resolve(publicCatalogDir, 'assets'), {
     dotfiles: 'deny', maxAge: '1d', setHeaders: (res, file) => {
       if (/catalog-[a-f0-9]+\.(css|mjs)$/.test(file)) res.set('Cache-Control', 'public, max-age=31536000, immutable');
@@ -131,9 +136,24 @@ if (renderer) {
       }
     },
   }));
-  catalogSite.get(/^(?!\/assets\/).*$/, (req, res) => {
+  catalogSite.get(/^(?!\/assets\/).*$/, async (req, res) => {
     const path = getPage(req);
-    const page = renderer.render(path, renderer.usesPublications(path) ? publications.read() : [], { artistOrigin: artistUrl });
+    let editorial = null;
+    if (catalog.editorial) {
+      const needsCalendar = /^\/(?:$|(?:taos|santa-fe)(?:$|\/whats-on(?:\/|$)))/.test(path);
+      const date = /^\/weekly\/(\d{4}-\d{2}-\d{2})$/.exec(path)?.[1];
+      const issueList = path === '/weekly' ? (await catalog.newsletter.list()).filter(issue=>issue.state==='sent') : [];
+      const issue = date ? await catalog.newsletter.get(date).catch(error => {
+        if (error.status !== 404) throw error;
+        return null;
+      }) : null;
+      editorial = { ...(needsCalendar ? await catalog.editorial.calendar() : {}),
+        signup:config.editorial.signup, issue:issue?.state==='sent' ? issue.contents : null, issueList,
+        sponsorEnabled:config.editorial.sponsorPrice>0 && Boolean(config.editorial.stripe.key && config.editorial.stripe.webhook),
+        sponsorPrice:config.editorial.sponsorPrice };
+    }
+    const page = renderer.render(path, renderer.usesPublications(path) ? publications.read() : [],
+      { artistOrigin:artistUrl,editorial,query:new URL(req.originalUrl,catalogUrl).searchParams });
     res.status(page.status).type('html').send(page.html);
   });
 } else catalogSite.use(express.static(publicCatalogDir, { dotfiles: 'deny', cacheControl: false }));
@@ -149,7 +169,11 @@ const appInstances = [artist, curator, catalog];
 try {
   const schema = await artist.db.prepare('SELECT version FROM asw_schema_migrations WHERE version=1').get();
   if (!schema) throw new Error('Run the Neon schema migration first.');
+  if (config.editorial && !(await artist.db.prepare('SELECT version FROM asw_schema_migrations WHERE version=2').get())) {
+    throw new Error('Run the editorial migration before enabling MVP2.');
+  }
   await publications.refresh();
+  await catalog.editorial?.calendar();
 } catch (error) {
   await Promise.all(appInstances.map(instance => instance.db.close()));
   console.error('Neon startup check failed.', error.code || error.name);
@@ -174,11 +198,20 @@ const queue = mailEnabled ? setInterval(() => {
   artist.outbox.pump().catch(() => console.error('The transactional email queue needs attention.'));
 }, 2000) : null;
 queue?.unref();
+let editorialRun;
+const editorialQueue = config.editorial?.jobs ? setInterval(() => {
+  if (editorialRun) return;
+  editorialRun = catalog.newsletter.jobs().catch(() => console.error('Editorial jobs need attention.'))
+    .finally(() => { editorialRun = null; });
+}, 60_000) : null;
+editorialQueue?.unref();
 
 function stop() {
   if (queue) clearInterval(queue);
+  if (editorialQueue) clearInterval(editorialQueue);
   server.close(async () => {
     await artist.outbox.drain()?.catch(() => null);
+    await editorialRun;
     await Promise.all(appInstances.map(instance => instance.db.close()));
   });
 }

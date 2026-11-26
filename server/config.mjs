@@ -1,3 +1,5 @@
+import { z } from 'zod';
+import { httpsUrl } from '../shared/editorial.mjs';
 import { randomBytes } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -10,6 +12,33 @@ function localKey(directory) {
     if (error.code !== 'EEXIST') throw error;
   }
   return readFileSync(path, 'utf8').trim();
+}
+
+function editorialSettings(env) {
+  if (env.EDITORIAL_ENABLED !== '1') return null;
+  const sources = z.array(z.object({
+    url:z.string().refine(httpsUrl), city:z.enum(['taos','santa-fe']), venue:z.string().max(140).optional(),
+    kind:z.enum(['event','exhibition']).optional(), timeZone:z.literal('America/Denver').optional(),
+    adapter:z.enum(['harwood-exhibitions','site-santa-fe']).optional(),
+    imageHosts:z.array(z.string().regex(/^[A-Za-z0-9.-]+$/)).max(8).optional(),
+    detailPath:z.string().regex(/^\/[A-Za-z0-9/_-]+\/$/).optional(),
+  })).max(15).parse(JSON.parse(env.EDITORIAL_SOURCES || readFileSync(new URL('./editorial/sources.json',import.meta.url),'utf8')));
+  const origin=env.CATALOG_ORIGIN || (env.NODE_ENV==='production' ? 'https://artsouthwest.com' : env.PUBLIC_URL || 'http://127.0.0.1:'+(env.PORT||4080));
+  const local=env.NODE_ENV!=='production' && /^http:\/\/(?:localhost|127\.0\.0\.1)(?::[0-9]+)?$/.test(origin);
+  if ((!local && !httpsUrl(origin)) || new URL(origin).origin!==origin) throw new Error('Configure the HTTPS editorial catalog origin.');
+  const signup=env.MAILCHIMP_SIGNUP_URL || '';
+  if (signup && !httpsUrl(signup)) throw new Error('Use an HTTPS Mailchimp signup link.');
+  const mailchimp={ key:env.MAILCHIMP_API_KEY || '', audience:env.MAILCHIMP_AUDIENCE_ID || '',
+    replyTo:env.MAILCHIMP_SENDER_EMAIL || '', send:env.EDITORIAL_MAIL_SEND==='1' };
+  if (mailchimp.send && (local || !mailchimp.key || !mailchimp.audience || !mailchimp.replyTo || !env.EDITORIAL_POSTAL_ADDRESS)) {
+    throw new Error('Connect the Mailchimp audience, sender and postal address before enabling newsletter sends.');
+  }
+  const sponsorPrice=Number(env.EDITORIAL_SPONSOR_PRICE_CENTS || 0);
+  if (!Number.isSafeInteger(sponsorPrice) || sponsorPrice<0 || sponsorPrice>10_000_00) throw new Error('Invalid USD sponsorship price.');
+  const stripe={ key:env.EDITORIAL_STRIPE_SECRET_KEY || '', webhook:env.EDITORIAL_STRIPE_WEBHOOK_SECRET || '' };
+  return { origin,sources,signup,mailchimp,stripe,sponsorPrice,logo:env.EDITORIAL_LOGO_URL || origin+'/ArtSouthwest-wordmark.png',
+    address:env.EDITORIAL_POSTAL_ADDRESS || '', modelKey:env.EDITORIAL_OPENAI_API_KEY || '',
+    model:env.EDITORIAL_OPENAI_MODEL || 'gpt-4o-mini', jobs:env.EDITORIAL_JOBS==='1' };
 }
 
 export function loadConfig(env = process.env) {
@@ -71,6 +100,7 @@ export function loadConfig(env = process.env) {
   const hexKey = env.MAIL_QUEUE_KEY || localKey(dataDir);
   if (!/^[a-f0-9]{64}$/i.test(hexKey)) throw new Error('MAIL_QUEUE_KEY must be 64 hexadecimal characters.');
   return {
+    editorial: editorialSettings(env),
     databaseUrl, objectStorage: databaseUrl ? storage : null,
     catalogDir: env.CATALOG_DIR ? resolve(env.CATALOG_DIR) : null,
     itineraryKey: env.ITINERARY_OPENAI_API_KEY || '',
