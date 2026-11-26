@@ -41,7 +41,7 @@ export function createApp(config, { sendMail, serveUi = true } = {}) {
       'Cross-Origin-Resource-Policy': 'same-origin',
       'Content-Security-Policy': "default-src 'self'; img-src 'self' blob:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'",
     });
-    if (config.production) res.set('Strict-Transport-Security', 'max-age=31536000');
+    if (config.secureCookie) res.set('Strict-Transport-Security', 'max-age=31536000');
     next();
   });
 
@@ -178,6 +178,13 @@ export function createApp(config, { sendMail, serveUi = true } = {}) {
     await requireRate(req, 'mail-ip', 30);
     await intake.sendLink(id);
     res.status(202).json({ accepted: true });
+  });
+  api.post('/application/saved-link', async (req, res) => {
+    const id = await writableArtist(req);
+    if (!(await rateLimit(db, config.mailKey, 'artist-saved-link', id, 4, DAY))) {
+      throw new IntakeError(429, 'You’ve made several private links today. Use one you saved or try again tomorrow.');
+    }
+    res.json({ url: await intake.issueSavedLink(id) });
   });
   api.post('/application/report', async (req, res) => {
     const id = await writableArtist(req);
@@ -392,5 +399,5 @@ export function createApp(config, { sendMail, serveUi = true } = {}) {
     return res.status(500).json({ message: 'We couldn’t finish that request. Please try again.', incident });
   });
 
-  return { app, db: db.sqlite || db, outbox };
+  return { app, db: db.sqlite || db, intake, outbox };
 }

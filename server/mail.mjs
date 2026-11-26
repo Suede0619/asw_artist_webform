@@ -26,7 +26,7 @@ async function newLink(db, config, appId, now, recipient) {
   const token = secret();
   await db.prepare('INSERT INTO resume_links(hash,app_id,expires_at,recipient) VALUES(?,?,?,?)')
     .run(digest(token), appId, now + DAY, recipient);
-  return config.publicUrl + '/resume#' + token;
+  return (config.artistPublicUrl || config.publicUrl) + '/resume#' + token;
 }
 
 export function draftLinkRecipient({ email, draft }) {
@@ -57,7 +57,7 @@ export async function queueDraftLink(db, config, application, now, note = '') {
 export async function queueReceipt(db, config, { id, email, draft, revision }, now) {
   const contact = cleanEmail.parse(JSON.parse(draft).profile.email);
   const access = contact === email
-    ? 'request a private link at ' + config.publicUrl + '/resume.'
+    ? 'request a private link at ' + (config.artistPublicUrl || config.publicUrl) + '/resume.'
     : 'open your submission again in the browser you used to submit.';
   const text = SUBMISSION_RECEIPT + '\n\n' +
     'Your reference is ' + id.slice(0, 8).toUpperCase() +

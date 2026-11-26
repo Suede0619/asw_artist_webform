@@ -109,6 +109,14 @@ test('a direct draft saves email with the profile and only opens through its own
   assert.equal(resumed.content.id, original.id);
   assert.equal(resumed.content.draft.profile.bio, draft.profile.bio);
   assert.equal((await visitor('/session/redeem', 'POST', { token: link })).status, 410);
+  const savedLink = await artist('/application/saved-link', 'POST', undefined, headers);
+  assert.equal(savedLink.status, 200);
+  const privateToken = new URL(savedLink.content.url).hash.slice(1);
+  const newDevice = app.client();
+  assert.equal((await newDevice('/application/saved-link', 'POST', undefined, headers)).status, 401);
+  const restored = await newDevice('/session/redeem', 'POST', { token: privateToken });
+  assert.equal(restored.content.id, original.id);
+  assert.equal((await newDevice('/session/redeem', 'POST', { token: privateToken })).status, 410);
 });
 
 test('decode an exact-size photo and reject undersize, unsupported and damaged photos', async () => {

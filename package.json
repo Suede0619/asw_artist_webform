@@ -16,7 +16,8 @@
     "backup": "node --env-file-if-exists=.env scripts/backup.mjs",
     "retention": "node --env-file-if-exists=.env scripts/retention.mjs",
     "import:sqlite": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/import-sqlite.mjs",
-    "start:tunnel": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/tunnel-origin.mjs"
+    "start:tunnel": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/tunnel-origin.mjs",
+    "start:domains": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/domain-origin.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1178.0",

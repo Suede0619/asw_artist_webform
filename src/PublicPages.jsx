@@ -56,7 +56,7 @@ function RequestLink() {
     }
   }
   if (document.body.hasAttribute('data-email-unavailable')) {
-    return <Panel title="Return to your submission" intro="Open the form in the browser you used to start your submission.">
+    return <Panel title="Return to your submission" intro="Open the form in the browser you used to start your submission, or use the private link you saved.">
       <a className="button" href={route('/apply')}>Open the artist form</a>
     </Panel>;
   }
@@ -101,7 +101,8 @@ export function Resume() {
     <ErrorBox error={error} />
     {/^[\w-]{43}$/.test(token) && error?.status !== 410 &&
       <button className="button" onClick={redeem} disabled={busy}>{busy ? 'Opening…' : 'Open my submission'}</button>}
-    <p><a className="quiet-link" href={route('/resume?recover=1')}>Request a new link</a></p>
+    <p><a className="quiet-link" href={route('/resume?recover=1')}>
+      {document.body.hasAttribute('data-email-unavailable') ? 'Return in your original browser' : 'Request a new link'}</a></p>
   </Panel>;
 }
 

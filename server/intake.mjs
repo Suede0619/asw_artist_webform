@@ -167,6 +167,30 @@ export function createIntake(db, config) {
     });
   }
 
+  async function issueLink(appId, expiresAt) {
+    const token = secret();
+    await db.prepare('INSERT INTO resume_links(hash,app_id,expires_at) VALUES(?,?,?)')
+      .run(digest(token), appId, expiresAt);
+    return token;
+  }
+
+  function transferSession(session) {
+    return db.transaction(async () => {
+      const now = Date.now();
+      const previous = await db.prepare('SELECT app_id FROM artist_sessions WHERE hash=? AND expires_at>?')
+        .get(digest(session), now);
+      return previous ? issueLink(previous.app_id, now + 5 * 60_000) : null;
+    });
+  }
+
+  function issueSavedLink(id) {
+    return db.transaction(async () => {
+      const app = await get(id);
+      if (app.status === 'withdrawn') throw new IntakeError(409, 'This submission has been withdrawn.');
+      return config.publicUrl + '/resume#' + await issueLink(id, Date.now() + 180 * DAY);
+    });
+  }
+
   function save(id, revision, draft) {
     return db.transaction(async () => {
       const app = await get(id);
@@ -367,5 +391,6 @@ export function createIntake(db, config) {
       callbacks, notifications, metrics, campaignMetrics, storage: db.postgres ? 'Neon' : 'SQLite' };
   }
 
-  return { get, view, createDraft, start, sendLink, redeem, save, submit, beginRevision, report, review, detail, overview, callback, updateCallback };
+  return { get, view, createDraft, start, sendLink, redeem, transferSession, issueSavedLink, save, submit,
+    beginRevision, report, review, detail, overview, callback, updateCallback };
 }

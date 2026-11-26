@@ -347,6 +347,7 @@ function SubmissionStatus({ application, update }) {
   const [note, setNote] = useState('');
   const [workId, setWork] = useState('');
   const [feedback, setFeedback] = useState('');
+  const [savedLink, setSavedLink] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [reportKey, setReportKey] = useState(() => crypto.randomUUID());
@@ -404,6 +405,18 @@ function SubmissionStatus({ application, update }) {
       setBusy(false);
     }
   }
+  async function createSavedLink() {
+    setBusy(true);
+    setError(null);
+    try {
+      const { url } = await request('/application/saved-link', 'POST', undefined, application.id);
+      setSavedLink(url);
+    } catch (failure) {
+      setError(failure);
+    } finally {
+      setBusy(false);
+    }
+  }
   const current = application.draft.works.filter((work) => work.availability === 'available');
   const saleOptions = new Map([...application.publishedWorks, ...current].map(({ id, title }) => [id, title]));
   const title = { withdrawn: 'Submission withdrawn', published: 'Your profile is published',
@@ -435,7 +448,16 @@ function SubmissionStatus({ application, update }) {
       {editable(application.status) && <a className="quiet-link" href={route('/apply')}>Return to editing</a>}
       {application.canEmailLink && application.status !== 'withdrawn' &&
         <button type="button" className="text-button" disabled={busy} onClick={emailLink}>Email me a private link</button>}
+      {!savedLink && application.status !== 'withdrawn' &&
+        <button type="button" className="text-button" disabled={busy} onClick={createSavedLink}>Save a private link</button>}
       <button type="button" className="text-button" onClick={logout}>Sign out</button>
     </div>
+    {savedLink && application.status !== 'withdrawn' && <div className="stack">
+      <label className="field" htmlFor="saved-submission-link">
+        <span>Private submission link</span>
+        <input id="saved-submission-link" type="text" value={savedLink} readOnly onFocus={event => event.target.select()} />
+      </label>
+      <p className="field-hint">Copy this link somewhere private. It opens your submission once within six months. You can save a new link after you use it.</p>
+    </div>}
   </Panel>;
 }

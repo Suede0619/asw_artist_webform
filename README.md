@@ -4,9 +4,9 @@ The intake collects artist profiles, portraits and three to five available works
 
 ## Live form
 
-[Open the ArtSouthwest artist webform](https://artsouthwest.com/?campaign=taos-artists).
+[Open the ArtSouthwest artist webform](https://artist.artsouthwest.com/?campaign=taos-artists).
 
-The custom domain runs through the named Cloudflare tunnel on the Mac. The invitation opens the artist profile directly. Artists can save and return in the same browser. The Mac’s private review desk holds submissions and callback requests. Email receipts and private links require a configured transactional sender.
+The catalog lives at [artsouthwest.com](https://artsouthwest.com/) and the private staff desk at [curator.artsouthwest.com](https://curator.artsouthwest.com/). The three sites use Neon Postgres and private Object Storage behind the named Cloudflare tunnel on the Mac. Artists can start immediately, return in the same browser, or save a one-time private link. Email receipts and emailed sign-in links require a configured transactional sender.
 
 ## Local preview
 
@@ -20,7 +20,7 @@ npm run dev
 
 Open `http://127.0.0.1:4080`. Put a private password in `REVIEWER_PASSWORD` in your local `.env` to open `/review`. Use fictional records in preview. With SMTP unconfigured, transactional messages are written locally under `data/dev-mail/`. Open the resume URL in the corresponding local message. The preview does not send email.
 
-React handles the multi-step form and reviewer interface. Vite builds the client. Express serves the client, API and private media on one origin. Node’s SQLite library creates and migrates `data/intake.sqlite` on startup. Originals, previews and the database live on the same private disk. There is no separate database account or import step.
+React handles the multi-step form and reviewer interface. Vite builds the client. Express serves the client, API and private media on one origin. Without Neon settings, the local preview uses SQLite at `data/intake.sqlite` and a private disk for images. Use the Neon settings for integration testing.
 
 ## Artist and reviewer flows
 
@@ -58,7 +58,7 @@ The Neon schema command initializes tables. Use the [migration and verification 
 | `SMTP_URL`, `MAIL_FROM`, `REPLY_TO` | Transactional mail transport, verified sender and monitored replies. Use an authenticated transactional sender. |
 | `MAIL_QUEUE_KEY` | 32 random bytes as 64 hexadecimal characters. Keep it stable across deploys and preserve it securely for restore. |
 
-Set secrets through your host. Generate a random queue key with `openssl rand -hex 32`. Start the process after building. The app exposes `/api/health`. Test one fictional submission and real mailbox delivery, including resume and receipt, before sending the campaign. The Mailchimp CTA points to the form origin with `/?campaign=taos-artists`. Send the invitation only to contacts with documented permission. No campaign sending is built into the form.
+Set secrets through your host. Generate a random queue key with `openssl rand -hex 32`. Start the process after building. The app exposes `/api/health`. Test one fictional submission and real mailbox delivery, including resume and receipt, before sending the campaign. The Mailchimp button points to `https://artist.artsouthwest.com/?campaign=taos-artists`. Send the invitation only to contacts with documented permission. No campaign sending is built into the form.
 
 Production config checks provide a guard against using the local email spool accidentally. Test that asset access and email work on the selected host before moving to real artist data. The live deployment uses artsouthwest.com. Configure the sender on the server before enabling transactional email. [SQLite single-host guidance](https://www.sqlite.org/whentouse.html) · [Mailchimp permission guidance](https://mailchimp.com/help/the-importance-of-permission/).
 
