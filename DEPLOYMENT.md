@@ -6,7 +6,7 @@
 | Artist invitation, intake and revisions | [artist.artsouthwest.com](https://artist.artsouthwest.com/?campaign=taos-artists) |
 | Password-protected staff desk | [curator.artsouthwest.com](https://curator.artsouthwest.com/) |
 
-The named Cloudflare tunnel forwards the three hostnames to the private Node origin at port 4282. Host-based route checks protect the artist and staff APIs. Artist and staff session cookies belong to their own hosts. The campaign address on the former apex redirects to the new invitation. An existing artist who opens the old form URL in the original browser can transfer a valid session once with a short-lived private link. The live service uses Neon Postgres and private Object Storage.
+The named Cloudflare tunnel forwards the three hostnames to the private Node origin at port 4283. The previous origin on port 4282 remains available for rollback. Host-based route checks protect the artist and staff APIs. Artist and staff session cookies belong to their own hosts. The campaign address on the former apex redirects to the new invitation. An existing artist who opens the old form URL in the original browser can transfer a valid session once with a short-lived private link. The live service uses Neon Postgres and private Object Storage.
 
 ## Verify a submission
 
