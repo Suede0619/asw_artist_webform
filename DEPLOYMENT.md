@@ -35,6 +35,8 @@ Use `https://artist.artsouthwest.com/?campaign=taos-artists` for the invitation 
 
 Build `production-release` in [the website repository](https://github.com/Suede0619/sw-arts-website). The apex renders browse pages on the server and refreshes its approved feed after a curator decision, a sale or a withdrawal. It serves fingerprinted catalog assets with long cache lifetimes. The old `/discover/` path redirects to the catalog home.
 
+Venue photo references live in the catalog. The hosted build reads the corresponding WebP files from `media/venue-photos/` in the private Object Storage bucket and verifies their fingerprints. To remove a photo, remove its listing’s `image` field, pin the new catalog commit and deploy. Delete the released copy from Object Storage when it has no active references and remove any obsolete deployment from rollback circulation. Keep the source and permission record in the private archive.
+
 ## Always-on hosting
 
 The live Render service is `artsouthwest-web` in Ohio. The [Blueprint](render.yaml) records its Node runtime, build and health check settings. A build pulls the catalog revision pinned in `catalog-release.txt`. The server starts after verifying the Neon schema and reading the published catalog. The service uses the 512 MB compute plan at $7 per month. On Hobby, the third custom domain adds $0.25 per month before usage charges. [Render pricing](https://render.com/pricing) · [Custom domain pricing](https://render.com/docs/custom-domains).

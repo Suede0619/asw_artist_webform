@@ -126,6 +126,9 @@ if (renderer) {
   catalogSite.use('/assets', express.static(resolve(publicCatalogDir, 'assets'), {
     dotfiles: 'deny', maxAge: '1d', setHeaders: (res, file) => {
       if (/catalog-[a-f0-9]+\.(css|mjs)$/.test(file)) res.set('Cache-Control', 'public, max-age=31536000, immutable');
+      if (/santa-fe-[a-z0-9-]+-[a-f0-9]{12}\.webp$/.test(file)) {
+        res.set('Cache-Control', 'public, max-age=300, must-revalidate');
+      }
     },
   }));
   catalogSite.get(/^(?!\/assets\/).*$/, (req, res) => {
