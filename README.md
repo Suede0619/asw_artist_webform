@@ -6,7 +6,7 @@ The intake collects artist profiles, portraits and three to five available works
 
 [Open the ArtSouthwest artist webform](https://artist.artsouthwest.com/?campaign=taos-artists).
 
-The catalog lives at [artsouthwest.com](https://artsouthwest.com/) and the private staff desk at [curator.artsouthwest.com](https://curator.artsouthwest.com/). The three sites use Neon Postgres and private Object Storage. The named Cloudflare tunnel still connects them to the Mac. The Render Blueprint packages the three services together for the managed-host cutover. Artists can start immediately, return in the same browser, or save a one-time private link. Email receipts and emailed sign-in links require a configured transactional sender.
+The catalog lives at [artsouthwest.com](https://artsouthwest.com/) and the private staff desk at [curator.artsouthwest.com](https://curator.artsouthwest.com/). One always-on Render service hosts all three sites. Neon Postgres stores submissions and the private Object Storage bucket holds the images. Artists can start immediately, return in the same browser, or save a one-time private link. Email receipts and emailed sign-in links require a configured transactional sender.
 
 ## Local preview
 
