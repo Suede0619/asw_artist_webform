@@ -179,6 +179,7 @@ export function ReviewDesk() {
   const [error, setError] = useState(null);
   const [section, setSection] = useState('submissions');
   const [metricSource, setMetricSource] = useState('all');
+  const [filter, setFilter] = useState('');
   const [application, setApplication] = useState(null);
   const [loading, setLoading] = useState(false);
   async function refresh() {
@@ -225,8 +226,13 @@ export function ReviewDesk() {
   if (!dashboard) return <Panel title="Staff review"><ErrorBox error={error} />{!error && <p>Loading…</p>}</Panel>;
   const labels = [
     ['visits', 'Invitation sessions'], ['started', 'Started'], ['submitted', 'Submitted'],
-    ['published', 'Published'], ['callback_requests', 'Call requests'], ['callbacks_completed', 'Calls completed'],
+    ['published', 'Published'], ['validated_assets', 'Photos stored'],
+    ['callback_requests', 'Call requests'], ['callbacks_completed', 'Calls completed'],
   ];
+  const search = filter.trim().toLowerCase();
+  const submissions = dashboard.applications
+    .map(item => ({ ...item, reference: item.reference || item.id.slice(0, 8).toUpperCase() }))
+    .filter(item => [item.reference, item.name, item.email].some(value => value?.toLowerCase().includes(search)));
   const metrics = metricSource === 'all' ? dashboard.metrics : dashboard.campaignMetrics;
   return <Panel title="Staff review" narrow={false}>
     <div className="desk-bar">
@@ -235,10 +241,14 @@ export function ReviewDesk() {
           <button className="text-button" type="button" key={key} aria-current={section === key ? 'page' : undefined}
             onClick={() => { setSection(key); setApplication(null); setError(null); }}>{label}</button>)}
       </nav>
-      <button className="text-button" type="button" onClick={logout}>Sign out</button>
+      <div className="actions">
+        <button className="text-button" type="button" onClick={() => refresh().catch(setError)}>Refresh</button>
+        <button className="text-button" type="button" onClick={logout}>Sign out</button>
+      </div>
     </div>
     <ErrorBox error={error} />
     {!application && <>
+      <p className="field-hint">Storage {dashboard.storage === 'Neon' ? 'Neon Postgres and Object Storage' : 'Local SQLite and media'}</p>
       <label className="metric-source" htmlFor="metric-source">Metrics source
         <select id="metric-source" value={metricSource} onChange={(event) => setMetricSource(event.target.value)}>
           <option value="all">All sources</option>
@@ -246,7 +256,8 @@ export function ReviewDesk() {
         </select>
       </label>
       <dl className="metrics">
-        {labels.map(([key, label]) => <div key={key}><dt>{label}</dt><dd>{metrics[key]}</dd></div>)}
+        {labels.filter(([key]) => metrics[key] !== undefined)
+          .map(([key, label]) => <div key={key}><dt>{label}</dt><dd>{metrics[key]}</dd></div>)}
       </dl>
     </>}
     {!application && dashboard.notifications.some((item) => item.state === 'failed') &&
@@ -263,10 +274,12 @@ export function ReviewDesk() {
           }
         }} /> :
       <div className="desk-list">
-        {dashboard.applications.length === 0 && <p>No artist submissions yet.</p>}
-        {dashboard.applications.map((item) => <article key={item.id} className="desk-row">
+        <Field id="submission-search" label="Find by reference, name or email" type="search"
+          value={filter} onChange={event => setFilter(event.target.value)} />
+        {submissions.length === 0 && <p>{search ? 'No matching submissions.' : 'No artist submissions yet.'}</p>}
+        {submissions.map((item) => <article key={item.id} className="desk-row">
           <div><h3>{item.name}</h3><p>{item.email} · {item.work_count} works · {statuses[item.status]}</p>
-            <p className="field-hint">Last updated {dateText(item.updated_at)}</p></div>
+            <p className="field-hint">{item.reference} · Last updated {dateText(item.updated_at)}</p></div>
           <button className="button secondary" type="button" onClick={() => open(item.id)} disabled={loading}
             aria-label={'Open ' + item.name}>Open</button>
         </article>)}

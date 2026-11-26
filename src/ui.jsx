@@ -8,22 +8,13 @@ export function route(path) {
   return campaign() === 'taos-artists' ? path + (path.includes('?') ? '&' : '?') + 'campaign=taos-artists' : path;
 }
 
-export function Layout({ children, review = false }) {
+export function Layout({ children }) {
   return <>
     <a className="skip-link" href="#main">Skip to content</a>
-    <header className="masthead">
-      <div className="shell masthead-inner">
-        <a className="brand" href={route('/')} aria-label="ArtSouthwest home">
-          <img src="/ArtSouthwest.svg" width="275" height="92" alt="ArtSouthwest" fetchPriority="high" />
-        </a>
-        {!review && <a className="quiet-link header-action" href={route('/start?resume=1')}>Resume a submission</a>}
-      </div>
-    </header>
     <main id="main" tabIndex="-1">{children}</main>
     <footer className="footer">
       <div className="shell footer-inner">
         <span>ArtSouthwest</span>
-        <a className="quiet-link" href="/privacy">Privacy and submissions</a>
       </div>
     </footer>
   </>;

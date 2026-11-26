@@ -1,7 +1,8 @@
 import { z } from 'zod';
 
-export const POLICY_VERSION = '2026-11-23';
+export const POLICY_VERSION = '2026-11-23-v2';
 export const COMMISSION = 20;
+export const SUBMISSION_RECEIPT = 'Thank you for sharing your work. We’ve received your submission. Our team will review it before your profile and artwork appear on ArtSouthwest.';
 export const MIN_EDGE = 1080;
 export const MAX_BYTES = 12 * 1024 * 1024;
 export const MAX_PIXELS = 52_000_000;
@@ -13,7 +14,7 @@ const text = (max) => z.string().max(max);
 const blankOrUuid = z.union([z.uuid(), z.literal('')]);
 const image = z.object({ id: z.uuid(), credit: text(160), alt: text(250) });
 const profile = z.object({
-  name: text(120), phone: text(32), city: text(120), region: text(100),
+  name: text(120), email: text(254).optional(), phone: text(32), city: text(120), region: text(100),
   bio: text(1800), pronouns: text(60), website: text(350), contactLink: text(350),
   studio: text(500), portrait: image.nullable(), portraitRights: z.boolean(),
 });
@@ -57,7 +58,7 @@ export const reviewerActionSchema = z.object({
 export function emptyDraft() {
   return {
     profile: {
-      name: '', phone: '', city: '', region: 'New Mexico', bio: '',
+      name: '', email: '', phone: '', city: '', region: 'New Mexico', bio: '',
       pronouns: '', website: '', contactLink: '', studio: '', portrait: null, portraitRights: false,
     },
     works: [],
@@ -106,11 +107,12 @@ function validSize(value) {
   return /^\d{1,5}(\.\d{1,4})?$/.test(value.trim()) && n > 0 && n <= 10000;
 }
 
-export function checkDraft(draft, { publishing = false } = {}) {
+export function checkDraft(draft, { publishing = false, checkEmail = true } = {}) {
   const issues = {};
   const need = (path, value, note) => { if (!value) issues[path] = note; };
   const { profile: p, works, permissions } = draft;
   need('profile.name', p.name.trim(), 'Enter the name you want on your profile.');
+  if (checkEmail) need('profile.email', cleanEmail.safeParse(p.email).success, 'Enter a valid email address.');
   need('profile.phone', normalPhone(p.phone), 'Enter a phone number with its area code.');
   need('profile.city', p.city.trim(), 'Enter your city or town.');
   need('profile.region', p.region.trim(), 'Enter your state or region.');
@@ -152,9 +154,9 @@ export function checkDraft(draft, { publishing = false } = {}) {
     }
     need(key + 'rights', w.rights, 'Confirm you may share this work and its images for review.');
   }
-  need('permissions.review', permissions.review, 'Confirm we may review your submission.');
+  need('permissions.review', permissions.review, 'Confirm you have permission to submit these materials.');
+  need('permissions.publicUse', permissions.publicUse, 'The artist’s permission is required to publish the profile and artwork.');
   need('permissions.commission', permissions.commission, 'Acknowledge the commission disclosure.');
-  if (publishing) need('permissions.publicUse', permissions.publicUse, 'The artist must grant public use before publishing.');
   return issues;
 }
 

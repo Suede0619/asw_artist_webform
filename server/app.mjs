@@ -1,14 +1,16 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import { z } from 'zod';
 import { callbackSchema, campaignId, cleanEmail, MAX_BYTES, reportSchema, reviewerActionSchema, revisionSchema, saveSchema } from '../shared/intake.mjs';
-import { openDatabase, transaction } from './database.mjs';
+import { createStore } from './store.mjs';
+import { createObjectMedia } from './object-media.mjs';
 import { IntakeError } from './errors.mjs';
 import { createIntake, editable } from './intake.mjs';
+import { itineraryRequest, planItinerary } from './itinerary.mjs';
 import { createOutbox, retryMail } from './mail.mjs';
 import { assetDirectory, mediaPath, prepareImage, MAX_ASSETS_PER_APPLICATION, writeAsset } from './media.mjs';
 import { cookie, DAY, digest, HOUR, rateLimit, sameSecret, secret } from './security.mjs';
@@ -21,7 +23,8 @@ const token = z.string().regex(/^[\w-]{43}$/);
 const eventRequest = z.object({ campaign: z.string().optional(), session: uuid });
 
 export function createApp(config, { sendMail, serveUi = true } = {}) {
-  const db = openDatabase(config.dataDir);
+  const db = createStore(config);
+  const media = config.objectStorage ? createObjectMedia(config.objectStorage) : null;
   const intake = createIntake(db, config);
   const outbox = createOutbox(db, config, sendMail);
   const app = express();
@@ -46,8 +49,8 @@ export function createApp(config, { sendMail, serveUi = true } = {}) {
     return { httpOnly: true, secure: config.secureCookie, sameSite: 'lax', path, ...(maxAge ? { maxAge } : {}) };
   }
 
-  function requireRate(req, scope, limit, period = HOUR) {
-    if (!rateLimit(db, config.mailKey, scope, req.ip || 'unknown', limit, period)) {
+  async function requireRate(req, scope, limit, period = HOUR) {
+    if (!(await rateLimit(db, config.mailKey, scope, req.ip || 'unknown', limit, period))) {
       throw new IntakeError(429, 'Please wait before trying again.');
     }
   }
@@ -58,22 +61,22 @@ export function createApp(config, { sendMail, serveUi = true } = {}) {
     return db.prepare('SELECT * FROM ' + table + ' WHERE hash=? AND expires_at>?').get(digest(raw), Date.now());
   }
 
-  function artistId(req) {
-    const session = authenticate('artist_sessions', ARTIST_COOKIE, req);
-    if (!session) throw new IntakeError(401, 'Open your private link to continue.');
+  async function artistId(req) {
+    const session = await authenticate('artist_sessions', ARTIST_COOKIE, req);
+    if (!session) throw new IntakeError(401, 'Return in the browser you used to start this submission.');
     return session.app_id;
   }
 
-  function writableArtist(req) {
-    const id = artistId(req);
+  async function writableArtist(req) {
+    const id = await artistId(req);
     if (req.get('X-Application-Id') !== id) {
       throw new IntakeError(409, 'This tab no longer matches the open submission. Reopen your private link.');
     }
     return id;
   }
 
-  function reviewer(req, _res, next) {
-    if (!authenticate('reviewer_sessions', REVIEWER_COOKIE, req)) {
+  async function reviewer(req, _res, next) {
+    if (!(await authenticate('reviewer_sessions', REVIEWER_COOKIE, req))) {
       throw new IntakeError(401, 'Sign in to the review desk.');
     }
     next();
@@ -93,64 +96,93 @@ export function createApp(config, { sendMail, serveUi = true } = {}) {
   });
   api.use(express.json({ limit: '80kb' }));
 
-  api.get('/health', (_req, res) => {
-    db.prepare('SELECT 1').get();
+  api.get('/health', async (_req, res) => {
+    await db.prepare('SELECT 1').get();
     res.json({ status: 'ok' });
   });
 
-  api.post('/visit', (req, res) => {
-    requireRate(req, 'visit', 150);
+  api.post('/itinerary', async (req, res) => {
+    if (!config.catalogDir) throw new IntakeError(404, 'Not found.');
+    await requireRate(req, 'itinerary-ip', 15);
+    const input = itineraryRequest.parse(req.body);
+    const useModel = config.itineraryKey && await rateLimit(db, config.mailKey, 'itinerary-model', 'global', 60, DAY);
+    res.json(await planItinerary(input, { ...config, itineraryKey: useModel ? config.itineraryKey : '' }));
+  });
+
+  api.post('/visit', async (req, res) => {
+    await requireRate(req, 'visit', 150);
     const { campaign, session } = eventRequest.parse(req.body);
-    db.prepare('INSERT OR IGNORE INTO landing_sessions(id,campaign,created_at) VALUES(?,?,?)')
+    await db.prepare('INSERT INTO landing_sessions(id,campaign,created_at) VALUES(?,?,?) ON CONFLICT(id) DO NOTHING')
       .run(session, campaignId(campaign), Date.now());
     res.sendStatus(204);
   });
 
-  api.post('/start', (req, res) => {
-    requireRate(req, 'mail-ip', 30);
+  api.post('/start', async (req, res) => {
+    if (config.mailEnabled === false) throw new IntakeError(503, 'Email links are unavailable. Return on the browser you used to start your submission.');
+    await requireRate(req, 'mail-ip', 30);
     const data = z.object({ email: cleanEmail, mode: z.enum(['start', 'resume']), campaign: z.string().optional() }).parse(req.body);
-    if (rateLimit(db, config.mailKey, 'mail-email', data.email, 4, HOUR)) {
-      intake.start(data.email, campaignId(data.campaign), data.mode === 'start');
+    if (await rateLimit(db, config.mailKey, 'mail-email', data.email, 4, HOUR)) {
+      await intake.start(data.email, campaignId(data.campaign), data.mode === 'start');
     }
     res.status(202).json({ accepted: true });
   });
 
-  api.post('/callbacks', (req, res) => {
-    requireRate(req, 'call', 25);
-    intake.callback(callbackSchema.parse(req.body));
+  api.post('/callbacks', async (req, res) => {
+    await requireRate(req, 'call', 25);
+    await intake.callback(callbackSchema.parse(req.body));
     res.status(202).json({ accepted: true });
   });
 
-  api.post('/session/redeem', (req, res) => {
-    requireRate(req, 'redeem', 60);
+  api.post('/session/redeem', async (req, res) => {
+    await requireRate(req, 'redeem', 60);
     const { token: link } = z.object({ token }).parse(req.body);
-    const { session, application } = intake.redeem(link);
+    const { session, application } = await intake.redeem(link);
     const current = cookie(req, ARTIST_COOKIE);
-    if (current) db.prepare('DELETE FROM artist_sessions WHERE hash=?').run(digest(current));
+    if (current) await db.prepare('DELETE FROM artist_sessions WHERE hash=?').run(digest(current));
     res.cookie(ARTIST_COOKIE, session, cookieOptions('/', 7 * DAY)).json(application);
   });
 
-  api.post('/session/logout', (req, res) => {
+  api.post('/session/logout', async (req, res) => {
     const raw = cookie(req, ARTIST_COOKIE);
-    if (raw) db.prepare('DELETE FROM artist_sessions WHERE hash=?').run(digest(raw));
+    if (raw) await db.prepare('DELETE FROM artist_sessions WHERE hash=?').run(digest(raw));
     res.clearCookie(ARTIST_COOKIE, cookieOptions('/')).sendStatus(204);
   });
 
-  api.get('/application', (req, res) => res.json(intake.view(intake.get(artistId(req)))));
-  api.put('/application', (req, res) => {
-    const id = writableArtist(req);
+  api.get('/application', async (req, res) => res.json(await intake.view(await intake.get(await artistId(req)))));
+  api.post('/application', async (req, res) => {
+    const current = await authenticate('artist_sessions', ARTIST_COOKIE, req);
+    if (current) return res.json(await intake.view(await intake.get(current.app_id)));
+    await requireRate(req, 'draft-start', 8);
+    const { campaign } = z.object({ campaign: z.string().optional() }).parse(req.body);
+    const { session, application } = await intake.createDraft(campaignId(campaign));
+    res.cookie(ARTIST_COOKIE, session, cookieOptions('/', 7 * DAY)).status(201).json(application);
+  });
+  api.put('/application', async (req, res) => {
+    const id = await writableArtist(req);
     const { revision, draft } = saveSchema.parse(req.body);
-    res.json(intake.save(id, revision, draft));
+    res.json(await intake.save(id, revision, draft));
   });
-  api.post('/application/submit', (req, res) => {
-    const id = writableArtist(req);
+  api.post('/application/submit', async (req, res) => {
+    const id = await writableArtist(req);
     const { revision } = z.object({ revision: revisionSchema }).parse(req.body);
-    res.json(intake.submit(id, revision));
+    res.json(await intake.submit(id, revision));
   });
-  api.post('/application/report', (req, res) => {
-    const id = writableArtist(req);
+  api.post('/application/revise', async (req, res) => {
+    const id = await writableArtist(req);
+    const { revision } = z.object({ revision: revisionSchema }).parse(req.body);
+    res.json(await intake.beginRevision(id, revision));
+  });
+  api.post('/application/link', async (req, res) => {
+    const id = await writableArtist(req);
+    if (config.mailEnabled === false) throw new IntakeError(503, 'Email links are unavailable. Return on this browser to continue.');
+    await requireRate(req, 'mail-ip', 30);
+    await intake.sendLink(id);
+    res.status(202).json({ accepted: true });
+  });
+  api.post('/application/report', async (req, res) => {
+    const id = await writableArtist(req);
     const input = reportSchema.parse(req.body);
-    res.json(intake.report(id, input));
+    res.json(await intake.report(id, input));
   });
 
   const assetByRequest = db.prepare(`SELECT id,width,height,bytes,role FROM assets
@@ -158,36 +190,36 @@ export function createApp(config, { sendMail, serveUi = true } = {}) {
   const logUpload = db.prepare(`INSERT INTO audit(subject_kind,subject_id,actor,action,note,created_at)
     VALUES('application',?,'artist',?,?,?)`);
   function uploadEvent(upload, event, note = '') {
-    logUpload.run(upload.id, event, upload.role + ' ' + upload.key.slice(0, 8) + (note ? ' · ' + note : ''), Date.now());
+    return logUpload.run(upload.id, event, upload.role + ' ' + upload.key.slice(0, 8) + (note ? ' · ' + note : ''), Date.now());
   }
 
-  api.post('/application/assets', (req, res, next) => {
-    const id = writableArtist(req);
-    requireRate(req, 'upload', 180);
+  api.post('/application/assets', async (req, res, next) => {
+    const id = await writableArtist(req);
+    await requireRate(req, 'upload', 180);
     const role = z.enum(['portrait', 'work']).parse(req.query.role);
     const key = uuid.parse(req.get('Idempotency-Key'));
-    const previous = assetByRequest.get(id, key);
+    const previous = await assetByRequest.get(id, key);
     if (previous) {
       if (previous.role !== role) throw new IntakeError(409, 'Retry this file in its original upload field.');
       return res.json(previous);
     }
-    if (!editable(intake.get(id).status)) throw new IntakeError(409, 'This submission is closed for editing.');
+    if (!editable((await intake.get(id)).status)) throw new IntakeError(409, 'This submission is closed for editing.');
     if (activeUploads >= 3) throw new IntakeError(503, 'Photo uploads are busy. Try this file again in a moment.');
     if (!req.is('application/octet-stream')) throw new IntakeError(415, 'Choose a supported photo file.');
     const upload = { id, role, key, processing: false, finished: false };
-    uploadEvent(upload, 'upload_started');
     activeUploads++;
     req.intakeUpload = upload;
     upload.finish = (event, note) => {
       if (upload.finished) return;
       upload.finished = true;
       activeUploads--;
-      uploadEvent(upload, event, note);
+      void uploadEvent(upload, event, note).catch(() => console.error('The upload audit could not be recorded.'));
     };
     res.once('close', () => {
       if (!upload.processing) upload.finish('upload_failed', 'Upload connection closed.');
     });
-    next();
+    await uploadEvent(upload, 'upload_started');
+    if (!upload.finished) next();
   }, express.raw({ type: 'application/octet-stream', limit: MAX_BYTES, inflate: false }), async (req, res) => {
     const upload = req.intakeUpload;
     const { id, role, key } = upload;
@@ -196,18 +228,18 @@ export function createApp(config, { sendMail, serveUi = true } = {}) {
     let adopted = false;
     try {
       const prepared = await prepareImage(req.body);
-      storedId = await writeAsset(config.dataDir, req.body, prepared);
-      const record = transaction(db, () => {
-        const saved = assetByRequest.get(id, key);
+      storedId = media ? await media.write(req.body, prepared) : await writeAsset(config.dataDir, req.body, prepared);
+      const record = await db.transaction(async () => {
+        const saved = await assetByRequest.get(id, key);
         if (saved) {
           if (saved.role !== role) throw new IntakeError(409, 'Retry this file in its original upload field.');
           return saved;
         }
-        if (!editable(intake.get(id).status)) throw new IntakeError(409, 'This submission is closed for editing.');
-        if (db.prepare('SELECT COUNT(*) AS n FROM assets WHERE app_id=?').get(id).n >= MAX_ASSETS_PER_APPLICATION) {
+        if (!editable((await intake.get(id)).status)) throw new IntakeError(409, 'This submission is closed for editing.');
+        if ((await db.prepare('SELECT COUNT(*) AS n FROM assets WHERE app_id=?').get(id)).n >= MAX_ASSETS_PER_APPLICATION) {
           throw new IntakeError(422, 'This submission has reached its photo upload limit. Contact the team for help.');
         }
-        db.prepare('INSERT INTO assets(id,app_id,request_key,role,format,width,height,bytes,created_at) VALUES(?,?,?,?,?,?,?,?,?)')
+        await db.prepare('INSERT INTO assets(id,app_id,request_key,role,format,width,height,bytes,created_at) VALUES(?,?,?,?,?,?,?,?,?)')
           .run(storedId, id, key, role, prepared.format, prepared.width, prepared.height, prepared.bytes, Date.now());
         return { id: storedId, role, width: prepared.width, height: prepared.height, bytes: prepared.bytes };
       });
@@ -215,94 +247,126 @@ export function createApp(config, { sendMail, serveUi = true } = {}) {
       upload.finish('upload_stored');
       res.status(adopted ? 201 : 200).json(record);
     } finally {
-      if (storedId && !adopted) await rm(assetDirectory(config.dataDir, storedId), { recursive: true, force: true });
+      if (storedId && !adopted) {
+        const cleanup = media ? (async () => {
+          // On a lost commit response, keep objects if Postgres did register the upload.
+          if (!(await db.prepare('SELECT 1 FROM assets WHERE id=?').get(storedId))) await media.remove(storedId);
+        })() : rm(assetDirectory(config.dataDir, storedId), { recursive: true, force: true });
+        await cleanup.catch(() => console.error('An unused image needs cleanup.'));
+      }
     }
   });
 
-  function imageResponse(res, id) {
+  async function imageResponse(res, id) {
+    if (media) {
+      try {
+        res.type('jpeg').send(await media.get(id, 'preview.jpg'));
+      } catch (error) {
+        if (error.name === 'NoSuchKey' || error.$metadata?.httpStatusCode === 404) {
+          throw new IntakeError(404, 'Photo not found.');
+        }
+        throw error;
+      }
+      return;
+    }
     res.type('jpeg').sendFile(mediaPath(config.dataDir, id), {
       cacheControl: false, dotfiles: 'deny', acceptRanges: false, lastModified: false,
     });
   }
 
-  api.get('/application/assets/:id', (req, res) => {
-    const owner = artistId(req);
+  api.get('/application/assets/:id', async (req, res) => {
+    const owner = await artistId(req);
     const id = uuid.parse(req.params.id);
-    if (!db.prepare('SELECT 1 FROM assets WHERE id=? AND app_id=?').get(id, owner)) {
+    if (!(await db.prepare('SELECT 1 FROM assets WHERE id=? AND app_id=?').get(id, owner))) {
       throw new IntakeError(404, 'Photo not found.');
     }
-    imageResponse(res, id);
+    await imageResponse(res, id);
   });
 
-  api.post('/review/login', (req, res) => {
-    requireRate(req, 'review-login', 15);
+  api.post('/review/login', async (req, res) => {
+    await requireRate(req, 'review-login', 15);
     if (!config.reviewerPassword) throw new IntakeError(503, 'The review desk needs a configured password.');
     const { password } = z.object({ password: z.string().max(400) }).parse(req.body);
     if (!sameSecret(password, config.reviewerPassword)) throw new IntakeError(401, 'That password didn’t match.');
     const tokenValue = secret();
     const now = Date.now();
     const raw = cookie(req, REVIEWER_COOKIE);
-    if (raw) db.prepare('DELETE FROM reviewer_sessions WHERE hash=?').run(digest(raw));
-    db.prepare('INSERT INTO reviewer_sessions(hash,expires_at) VALUES(?,?)')
+    if (raw) await db.prepare('DELETE FROM reviewer_sessions WHERE hash=?').run(digest(raw));
+    await db.prepare('INSERT INTO reviewer_sessions(hash,expires_at) VALUES(?,?)')
       .run(digest(tokenValue), now + 8 * HOUR);
     res.cookie(REVIEWER_COOKIE, tokenValue, cookieOptions('/api/review', 8 * HOUR)).json({ signedIn: true });
   });
 
-  api.post('/review/logout', (req, res) => {
+  api.post('/review/logout', async (req, res) => {
     const raw = cookie(req, REVIEWER_COOKIE);
-    if (raw) db.prepare('DELETE FROM reviewer_sessions WHERE hash=?').run(digest(raw));
+    if (raw) await db.prepare('DELETE FROM reviewer_sessions WHERE hash=?').run(digest(raw));
     res.clearCookie(REVIEWER_COOKIE, cookieOptions('/api/review')).sendStatus(204);
   });
 
-  api.get('/review', reviewer, (_req, res) => res.json(intake.overview()));
-  api.get('/review/applications/:id', reviewer, (req, res) => res.json(intake.detail(uuid.parse(req.params.id))));
-  api.post('/review/applications/:id', reviewer, (req, res) => {
+  api.get('/review', reviewer, async (_req, res) => res.json(await intake.overview()));
+  api.get('/review/applications/:id', reviewer, async (req, res) => res.json(await intake.detail(uuid.parse(req.params.id))));
+  api.post('/review/applications/:id', reviewer, async (req, res) => {
     const id = uuid.parse(req.params.id);
-    intake.review(id, reviewerActionSchema.parse(req.body));
-    res.json(intake.detail(id));
+    await intake.review(id, reviewerActionSchema.parse(req.body));
+    res.json(await intake.detail(id));
   });
-  api.get('/review/assets/:id', reviewer, (req, res) => {
+  api.get('/review/assets/:id', reviewer, async (req, res) => {
     const id = uuid.parse(req.params.id);
-    if (!db.prepare('SELECT 1 FROM assets WHERE id=?').get(id)) throw new IntakeError(404, 'Photo not found.');
-    imageResponse(res, id);
+    if (!(await db.prepare('SELECT 1 FROM assets WHERE id=?').get(id))) throw new IntakeError(404, 'Photo not found.');
+    await imageResponse(res, id);
   });
-  api.post('/review/callbacks/:id', reviewer, (req, res) => {
+  api.post('/review/callbacks/:id', reviewer, async (req, res) => {
     const { status, note } = z.object({
       status: z.enum(['acknowledged', 'completed', 'closed']), note: z.string().trim().max(900),
     }).parse(req.body);
-    intake.updateCallback(uuid.parse(req.params.id), status, note);
+    await intake.updateCallback(uuid.parse(req.params.id), status, note);
     res.sendStatus(204);
   });
-  api.post('/review/mail/:id/retry', reviewer, (req, res) => {
-    if (!retryMail(db, config, uuid.parse(req.params.id))) throw new IntakeError(409, 'This message is unavailable for retry.');
+  api.post('/review/mail/:id/retry', reviewer, async (req, res) => {
+    if (config.mailEnabled === false) throw new IntakeError(503, 'Connect email delivery before retrying.');
+    if (!(await retryMail(db, config, uuid.parse(req.params.id)))) throw new IntakeError(409, 'This message is unavailable for retry.');
     res.sendStatus(204);
   });
 
   function publicHeaders(res) {
     res.set({ 'Access-Control-Allow-Origin': '*', 'Cross-Origin-Resource-Policy': 'cross-origin' });
   }
-  api.get('/catalog', (_req, res) => {
+  api.get('/catalog', async (_req, res) => {
     publicHeaders(res);
-    const artists = db.prepare('SELECT data FROM publications ORDER BY published_at DESC').all()
+    const artists = (await db.prepare('SELECT data FROM publications ORDER BY published_at DESC').all())
       .map((row) => JSON.parse(row.data));
     res.json({ version: 1, artists });
   });
-  api.get('/catalog/media/:id', (req, res) => {
+  api.get('/catalog/media/:id', async (req, res) => {
     const id = uuid.parse(req.params.id);
-    if (!db.prepare('SELECT 1 FROM public_assets WHERE asset_id=? LIMIT 1').get(id)) {
+    if (!(await db.prepare('SELECT 1 FROM public_assets WHERE asset_id=? LIMIT 1').get(id))) {
       throw new IntakeError(404, 'Photo not found.');
     }
     publicHeaders(res);
-    imageResponse(res, id);
+    await imageResponse(res, id);
   });
   api.use((_req, _res, next) => next(new IntakeError(404, 'Not found.')));
   app.use('/api', api);
 
   if (serveUi) {
+    if (config.catalogDir) {
+      if (!existsSync(join(config.catalogDir, 'index.html'))) throw new Error('Build the catalog before setting CATALOG_DIR.');
+      app.use('/discover', express.static(config.catalogDir, { dotfiles: 'deny', maxAge: 0 }));
+    }
     const directory = resolve(root);
     if (existsSync(join(directory, 'index.html'))) {
       app.use(express.static(directory, { dotfiles: 'deny', index: false, maxAge: '1h' }));
-      app.get(['/', '/start', '/resume', '/apply', '/callback', '/review', '/privacy'], (_req, res) => {
+      app.get('/start', (req, res) => {
+        const campaign = campaignId(req.query.campaign);
+        res.set('Cache-Control', 'no-store').redirect(302, '/apply' + (campaign === 'taos-artists' ? '?campaign=taos-artists' : ''));
+      });
+      if (config.mailEnabled === false) {
+        app.get('/resume', (_req, res) => {
+          const html = readFileSync(join(directory, 'index.html'), 'utf8');
+          res.set('Cache-Control', 'no-store').type('html').send(html.replace('<body>', '<body data-email-unavailable>'));
+        });
+      }
+      app.get(['/', '/resume', '/apply', '/callback', '/review', '/privacy'], (_req, res) => {
         res.set('Cache-Control', 'no-store').sendFile(join(directory, 'index.html'), { cacheControl: false });
       });
     } else {
@@ -328,5 +392,5 @@ export function createApp(config, { sendMail, serveUi = true } = {}) {
     return res.status(500).json({ message: 'We couldn’t finish that request. Please try again.', incident });
   });
 
-  return { app, db, outbox };
+  return { app, db: db.sqlite || db, outbox };
 }

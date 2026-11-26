@@ -18,7 +18,7 @@ async function checkFile(file) {
   try {
     if (Math.max(preview.width, preview.height) < MIN_EDGE) {
       throw new Error('This image is ' + preview.width + ' by ' + preview.height +
-        ' pixels. Choose one with at least 1,080 pixels on its longest side.');
+        ' pixels. Choose a photo with at least 1,080 pixels on its longest side.');
     }
   } finally {
     preview.close();
@@ -46,7 +46,7 @@ export function PhotoPicker({ id, label, role, applicationId, onAdd, onBusy, dis
     }
   }
   return <div className="upload">
-    <Field id={id} label={label} error={error} hint="JPEG, PNG or WebP. At least 1,080 pixels on the longest side. Up to 12 MB.">
+    <Field id={id} label={label} error={error} hint="Choose a photo at least 1,080 pixels on its longest side. JPEG, PNG or WebP, up to 12 MB.">
       {(ids) => <input {...ids} ref={input} type="file" accept="image/jpeg,image/png,image/webp"
         disabled={state.busy || disabled} onChange={(event) => {
           const selected = event.target.files?.[0];

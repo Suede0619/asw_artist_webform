@@ -1,5 +1,4 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
-import { transaction } from './database.mjs';
 
 export const HOUR = 60 * 60 * 1000;
 export const DAY = 24 * HOUR;
@@ -27,11 +26,11 @@ export function cookie(req, name) {
 export function rateLimit(db, key, scope, value, limit, period) {
   const bucket = createHmac('sha256', key).update(scope + ':' + value).digest('hex');
   const window = Math.floor(Date.now() / period) * period;
-  return transaction(db, () => {
-    const r = db.prepare('SELECT count FROM rate_buckets WHERE bucket = ? AND window = ?').get(bucket, window);
+  return db.transaction(async () => {
+    const r = await db.prepare('SELECT count FROM rate_buckets WHERE bucket = ? AND "window" = ?').get(bucket, window);
     if (r?.count >= limit) return false;
-    db.prepare(`INSERT INTO rate_buckets(bucket,window,count) VALUES(?,?,1)
-      ON CONFLICT(bucket,window) DO UPDATE SET count = count + 1`).run(bucket, window);
+    await db.prepare(`INSERT INTO rate_buckets(bucket,"window",count) VALUES(?,?,1)
+      ON CONFLICT(bucket,"window") DO UPDATE SET count = rate_buckets.count + 1`).run(bucket, window);
     return true;
   });
 }

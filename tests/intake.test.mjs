@@ -76,6 +76,41 @@ function artistHeader(app) {
   return { 'X-Application-Id': app.id };
 }
 
+test('a direct draft saves email with the profile and only opens through its own session or link', async (t) => {
+  const app = await setup(t);
+  const artist = app.client();
+  const visitor = app.client();
+  const opened = await artist('/application', 'POST', { campaign: 'taos-artists' });
+  assert.equal(opened.status, 201);
+  const original = opened.content;
+  const headers = artistHeader(original);
+  assert.equal(original.draft.profile.email, '');
+  assert.equal((await artist('/application', 'POST', {})).content.id, original.id);
+  assert.equal((await visitor('/application')).status, 401);
+  const draft = original.draft;
+  draft.profile.bio = 'A fictional artist bio.';
+  draft.profile.email = 'unfinished@example';
+  const saved = await artist('/application', 'PUT', { revision: original.revision, draft }, headers);
+  assert.equal(saved.status, 200);
+  assert.equal((await artist('/application')).content.draft.profile.email, draft.profile.email);
+  const submitted = await artist('/application/submit', 'POST', { revision: saved.content.revision }, headers);
+  assert.equal(submitted.status, 422);
+  assert.ok(submitted.content.fields['profile.email']);
+  draft.profile.email = 'direct-draft@example.test';
+  const completed = await artist('/application', 'PUT', { revision: saved.content.revision, draft }, headers);
+  assert.equal(completed.status, 200);
+  assert.equal((await visitor('/start', 'POST', { email: draft.profile.email, mode: 'resume' })).status, 202);
+  await app.outbox.pump();
+  assert.equal(app.deliveries.length, 0);
+  assert.equal((await artist('/application/link', 'POST', undefined, headers)).status, 202);
+  await app.outbox.pump();
+  const link = app.deliveries[0].text.match(/\/resume#([\w-]+)/)[1];
+  const resumed = await visitor('/session/redeem', 'POST', { token: link });
+  assert.equal(resumed.content.id, original.id);
+  assert.equal(resumed.content.draft.profile.bio, draft.profile.bio);
+  assert.equal((await visitor('/session/redeem', 'POST', { token: link })).status, 410);
+});
+
 test('decode an exact-size photo and reject undersize, unsupported and damaged photos', async () => {
   const accepted = await prepareImage(await createJpeg(1080));
   assert.deepEqual([accepted.width, accepted.height], [1080, 720]);
@@ -151,28 +186,37 @@ test('draft, email resume, media isolation, versioning, publication, sale, withd
   assert.equal(recovered.draft.step, 'review');
   assert.equal(recovered.assets.length, 4);
 
-  const submit = await sameArtist('/application/submit', 'POST', { revision: saved.content.revision }, headers);
+  const missingPermission = await sameArtist('/application/submit', 'POST', { revision: saved.content.revision }, headers);
+  assert.equal(missingPermission.status, 422);
+  assert.ok(missingPermission.content.fields['permissions.publicUse']);
+  recovered.draft.permissions.publicUse = true;
+  const withPermission = await sameArtist('/application', 'PUT', { revision: saved.content.revision, draft: recovered.draft }, headers);
+  assert.equal(withPermission.status, 200);
+
+  const submit = await sameArtist('/application/submit', 'POST', { revision: withPermission.content.revision }, headers);
   assert.equal(submit.status, 200);
   assert.equal(submit.content.status, 'submitted');
-  assert.deepEqual((await sameArtist('/application/submit', 'POST', { revision: saved.content.revision }, headers)).content, submit.content);
+  assert.deepEqual((await sameArtist('/application/submit', 'POST', { revision: withPermission.content.revision }, headers)).content, submit.content);
   await app.outbox.pump();
-  assert.equal(app.deliveries.filter((mail) => mail.to === email && mail.subject.includes('received')).length, 1);
+  const receipts = app.deliveries.filter((mail) => mail.to === email && mail.subject.includes('received'));
+  assert.equal(receipts.length, 1);
+  assert.match(receipts[0].text, /will review it before your profile and artwork appear on ArtSouthwest/);
   assert.deepEqual((await other('/catalog')).content.artists, []);
 
   assert.equal((await staff('/review/login', 'POST', { password: app.config.reviewerPassword })).status, 200);
   const path = '/review/applications/' + record.id;
   const publish = (revision, clearance = true) => staff(path, 'POST',
     { revision, action: 'publish', note: 'Fictional clearance and availability evidence.', clearance });
-  assert.equal((await publish(submit.content.revision)).status, 422);
+  assert.equal((await publish(submit.content.revision, false)).status, 422);
   const corrections = await staff(path, 'POST', {
-    revision: submit.content.revision, action: 'changes', note: 'Confirm permission or ask us a question.',
+    revision: submit.content.revision, action: 'changes', note: 'Please update the fictional artist bio.',
   });
   assert.equal(corrections.status, 200);
   await app.outbox.pump();
   const correctionMail = app.deliveries.at(-1);
-  assert.match(correctionMail.text, /Confirm permission/);
+  assert.match(correctionMail.text, /update the fictional artist bio/);
   const current = (await sameArtist('/application')).content;
-  current.draft.permissions.publicUse = true;
+  current.draft.profile.bio = 'I make fictional artwork in Taos.';
   const updated = await sameArtist('/application', 'PUT', { revision: current.revision, draft: current.draft }, headers);
   assert.equal(updated.status, 200);
   const resent = await sameArtist('/application/submit', 'POST', { revision: updated.content.revision }, headers);
@@ -187,6 +231,21 @@ test('draft, email resume, media isolation, versioning, publication, sale, withd
   assert.ok(!JSON.stringify(catalog).includes(email));
   assert.ok(!JSON.stringify(catalog).includes('Private'));
   assert.equal((await other('/catalog/media/' + portrait.id)).status, 200);
+
+  const beforeRevision = (await sameArtist('/application')).content;
+  assert.equal((await other('/application/revise', 'POST', { revision: beforeRevision.revision }, headers)).status, 409);
+  const opened = await sameArtist('/application/revise', 'POST', { revision: beforeRevision.revision }, headers);
+  assert.equal(opened.content.status, 'changes_requested');
+  const retryRevision = await sameArtist('/application/revise', 'POST', { revision: beforeRevision.revision }, headers);
+  assert.equal(retryRevision.content.revision, opened.content.revision);
+  const revisedDraft = opened.content.draft;
+  revisedDraft.works[0].price = '170.50';
+  const changedPrice = await sameArtist('/application', 'PUT', { revision: opened.content.revision, draft: revisedDraft }, headers);
+  const submittedRevision = await sameArtist('/application/submit', 'POST', { revision: changedPrice.content.revision }, headers);
+  assert.equal(submittedRevision.status, 200);
+  assert.equal((await other('/catalog')).content.artists[0].works[0].price.amountMinor, 12050);
+  assert.equal((await publish(submittedRevision.content.revision)).status, 200);
+  assert.equal((await other('/catalog')).content.artists[0].works[0].price.amountMinor, 17050);
 
   const backup = join(app.folder, 'restore-check');
   assert.equal(await backupIntake(app.folder, backup), 4);

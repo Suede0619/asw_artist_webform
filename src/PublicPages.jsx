@@ -4,6 +4,7 @@ import { request } from './api.mjs';
 import { campaign, route, Panel, Field, Check, ErrorBox } from './ui.jsx';
 
 export function Landing() {
+  const saved = new URLSearchParams(window.location.search).get('saved') === '1';
   useEffect(() => {
     let session = window.crypto.randomUUID();
     try {
@@ -13,80 +14,70 @@ export function Landing() {
     } catch { /* The invitation still works without browser storage. */ }
     request('/visit', 'POST', { campaign: campaign(), session }).catch(() => {});
   }, []);
-  return <>
-    <section className="shell hero">
-      <div className="hero-copy">
-        <h1>An invitation to show your work</h1>
-        <p>ArtSouthwest is a new guide to art in Taos and Santa Fe. We’re inviting a small group of Taos artists to share work for the first edition.</p>
-        <p className="offer">Free to submit. <strong>{COMMISSION}% commission on artwork sold through the platform.</strong></p>
-        <div className="actions">
-          <a className="button" href={route('/start')}>Start my submission</a>
-          <a className="quiet-link" href={route('/callback')}>Request a call</a>
+  return (
+    <div className="shell invitation">
+      <p className="invitation-brand">ArtSouthwest</p>
+      <section className="hero">
+        <div className="hero-copy">
+          <h1>We’d like to feature your work in our first edition.</h1>
+          <p>ArtSouthwest pairs a curated online art catalog with an insider’s guide to Taos and Santa Fe. Alongside the artwork, collectors will find galleries, studio visits and distinctive places to eat and stay.</p>
+          <p>Select works that best convey the character of your practice. Please provide a short bio and a portrait, along with three to five works available for sale. For each work, include an image, title, brief description, medium, dimensions and price. Our team reviews your submission before publishing your profile and artwork on ArtSouthwest.</p>
+          <p className="offer">ArtSouthwest charges a {COMMISSION}% commission on completed artwork sales through the website.</p>
+          {saved && <p role="status">Your draft is saved. Return in this browser to continue.</p>}
+          <div className="actions">
+            <a className="button" href={route('/apply')}>{saved ? 'Continue my submission' : 'Start my submission'}</a>
+            <a className="quiet-link" href={route('/callback')}>Request a call</a>
+          </div>
         </div>
-      </div>
-      <figure className="hero-image">
-        <img src="/studio-light.jpg" width="1536" height="1024" alt="Hands holding an unglazed ceramic vessel in a sunlit studio." fetchPriority="high" />
-      </figure>
-    </section>
-    <section className="shell invitation-details">
-      <div>
-        <h2>How the feature works</h2>
-        <p>Each city’s selection brings together artists, galleries, things to do, places to eat and places to stay. We want readers to find work they connect with and have enough context to see it or inquire.</p>
-        <p>We’ll review your submission and ask you to confirm the profile and works we propose to feature.</p>
-        <p>We’ll share the seller terms before you decide whether to sell through the site.</p>
-      </div>
-      <div className="checklist">
-        <h2>What to have ready</h2>
-        <ul>
-          <li>A short bio and a portrait you have permission to share.</li>
-          <li>Three to five available works, with a title, description, medium, dimensions and price for each.</li>
-          <li>A photo of each work. Every image needs at least 1,080 pixels on its longest side.</li>
-        </ul>
-      </div>
-    </section>
-  </>;
+        <figure className="hero-image">
+          <img src="/adobe-door.jpg" width="1536" height="1024" alt="An open blue door reveals an easel inside an adobe studio." fetchPriority="high" />
+        </figure>
+      </section>
+    </div>
+  );
 }
 
-export function Start() {
-  const [mode, setMode] = useState(new URLSearchParams(window.location.search).get('resume') === '1' ? 'resume' : 'start');
+function RequestLink() {
   const [email, setEmail] = useState('');
   const [phase, setPhase] = useState('idle');
   const [error, setError] = useState(null);
-  useEffect(() => {
-    request('/application').then(() => setPhase((current) => current === 'idle' ? 'existing' : current)).catch(() => {});
-  }, []);
+  const sending = phase === 'busy';
   async function send(event) {
     event.preventDefault();
+    if (sending) return;
     setPhase('busy');
     setError(null);
     try {
-      await request('/start', 'POST', { email, mode, campaign: campaign() });
+      await request('/start', 'POST', { email, mode: 'resume' });
       setPhase('sent');
     } catch (failure) {
       setPhase('idle');
       setError(failure);
     }
   }
+  if (document.body.hasAttribute('data-email-unavailable')) {
+    return <Panel title="Return to your submission" intro="Open the form in the browser you used to start your submission.">
+      <a className="button" href={route('/apply')}>Open the artist form</a>
+    </Panel>;
+  }
   if (phase === 'sent') {
-    return <Panel title="Check your email" intro={mode === 'resume'
-      ? 'If you have a submission at that address, we’ll send you a private link.'
-      : 'We’ll send a private link to the address you entered. Open it to start your submission.'}>
+    return <Panel title="Check your email"
+      intro="If you’ve verified this address for a submission, we’ll send a private link.">
       <p>The link works once and expires in 24 hours. Check your spam folder if it hasn’t arrived.</p>
       <button className="text-button" type="button" onClick={() => setPhase('idle')}>Use a different address</button>
     </Panel>;
   }
-  return <Panel title={mode === 'resume' ? 'Resume your submission' : 'Start your artist submission'}
-    intro="Enter your email for a private link. You can save your progress and finish later.">
-    {phase === 'existing' && <p className="notice"><a href="/apply">Continue the submission open on this device</a></p>}
+  return <Panel title="Request a new link" intro="Enter the email address you verified for your submission.">
     <form className="stack" onSubmit={send}>
-      <Field id="start-email" label="Email address" type="email" autoComplete="email" required maxLength={254}
-        value={email} onChange={(event) => setEmail(event.target.value)} />
+      <Field id="resume-email" label="Email address" type="email" autoComplete="email" required maxLength={254}
+        disabled={sending} value={email} onChange={(event) => setEmail(event.target.value)} />
       <ErrorBox error={error} />
-      <div className="actions"><button className="button" disabled={phase === 'busy'}>Email me a private link</button></div>
+      <div className="actions">
+        <button className="button" disabled={sending}>
+          {sending ? 'Sending…' : 'Email me a private link'}
+        </button>
+      </div>
     </form>
-    <p><button className="text-button" type="button" onClick={() => setMode(mode === 'start' ? 'resume' : 'start')}>
-      {mode === 'start' ? 'Already started?' : 'Starting a new submission?'}
-    </button></p>
   </Panel>;
 }
 
@@ -105,11 +96,12 @@ export function Resume() {
       setError(failure);
     }
   }
+  if (!token) return <RequestLink />;
   return <Panel title="Your ArtSouthwest submission" intro="Open your submission on this device to continue.">
     <ErrorBox error={error} />
     {/^[\w-]{43}$/.test(token) && error?.status !== 410 &&
       <button className="button" onClick={redeem} disabled={busy}>{busy ? 'Opening…' : 'Open my submission'}</button>}
-    <p><a className="quiet-link" href="/start?resume=1">Request a new link</a></p>
+    <p><a className="quiet-link" href={route('/resume?recover=1')}>Request a new link</a></p>
   </Panel>;
 }
 
@@ -134,10 +126,10 @@ export function Callback() {
     }
   }
   if (phase === 'sent') return <Panel title="We received your request"
-    intro="Someone from ArtSouthwest will call the number you shared.">
+    intro="Thank you. We’ll call you at the number you shared.">
     <a className="button secondary" href={route('/')}>Back to the invitation</a>
   </Panel>;
-  return <Panel title="Talk with us first" intro="Leave a number and we’ll get in touch to answer your questions.">
+  return <Panel title="Talk with us" intro="If you’d like to discuss the invitation, leave your number and we’ll call you.">
     <form className="stack" onSubmit={send}>
       <Field id="callback-name" label="Name" autoComplete="name" required maxLength={120} {...value('name')} />
       <Field id="callback-phone" label="Phone number" autoComplete="tel" type="tel" required maxLength={32}
@@ -156,7 +148,7 @@ export function Callback() {
 }
 
 export function Privacy() {
-  return <Panel title="Privacy and submissions">
+  return <Panel title="Privacy">
     <div className="prose">
       <h2>How we use your information</h2>
       <p>We use your contact details to return a call, send private submission links and follow up on work you share. We keep private contact details, draft text, permission records and original uploads in the submission system. Only cleared profile and work details and approved image copies appear in the catalog.</p>

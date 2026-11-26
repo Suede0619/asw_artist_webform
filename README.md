@@ -1,12 +1,12 @@
 # ArtSouthwest artist intake
 
-The intake collects artist profiles, portraits and three to five available works. Artists can request a call, save a private draft, resume by email and report changes after submitting. The review desk manages calls, corrections, image review and publication. The future catalog can use the read-only published feed.
+The intake collects artist profiles, portraits and three to five available works. Artists can request a call, save a private draft and report changes after submitting. The review desk manages calls, corrections, image review and publication. The production catalog uses the read-only published feed.
 
-## Live preview
+## Live form
 
-[Open the ArtSouthwest artist webform](https://margin-brave-quantity-academic.trycloudflare.com/?campaign=taos-artists).
+[Open the ArtSouthwest artist webform](https://artsouthwest.com/?campaign=taos-artists).
 
-This temporary HTTPS address runs through a Cloudflare tunnel on the Mac. To try the form, choose **Start my submission**, then **Open a sample submission**. Use fictional details. The preview simulates email and callbacks.
+The custom domain runs through the named Cloudflare tunnel on the Mac. The invitation opens the artist profile directly. Artists can save and return in the same browser. The Mac’s private review desk holds submissions and callback requests. Email receipts and private links require a configured transactional sender.
 
 ## Local preview
 
@@ -25,19 +25,28 @@ React handles the multi-step form and reviewer interface. Vite builds the client
 ## Artist and reviewer flows
 
 - The invitation discloses the 20% platform sales commission before the artist starts. There is no submission fee. Seller agreements and checkout are separate.
-- Email verifies access before the artist can edit. A resume link expires in 24 hours and works once. Artists can request a new link. The browser can keep a session for seven days. Profile and work changes save as the artist goes. Saves from a stale editor cannot overwrite a newer version.
+- The artist enters email on the same page as the bio. The form checks its format at final submission. A private browser session lasts seven days. Profile and work changes save as the artist goes. Saves from a stale editor cannot overwrite a newer version.
+- When email delivery is configured, artists can request a private link from **Manage submission**. That link works once and expires in 24 hours. Opening it lets the artist return from a second browser. A verified address can request a fresh link at `/resume`.
 - Every photo must have at least 1,080 pixels on its longest side and fit within 12 MB and 52 megapixels. JPEG, PNG and WebP are supported. Export HEIC as JPEG for this release. Originals stay private. The app creates orientation-corrected JPEG previews with metadata removed.
-- The reviewer verifies artwork details, permissions, image credits, availability, seller authority and any cultural access restrictions. An artist can submit with website permission unchecked. That submission needs a correction and opt-in before publication.
-- A reviewer can send a correction request with a private link, approve and publish a submitted version, or unpublish the profile. Reporting a sold work removes it and its images from the public feed. Withdrawal removes the profile and its public media without waiting for a reviewer.
+- Artists grant website permission before they submit. The reviewer verifies artwork details, permissions, image credits, availability, seller authority and any cultural access restrictions before publication.
+- A reviewer can request a correction, approve and publish a submitted version, or unpublish the profile. A correction appears in the artist’s submission and can be emailed to a verified address. Reporting a sold work removes it and its images from the public feed. Withdrawal removes the profile and its public media without waiting for a reviewer.
 - Call requests are assigned to the configured owner. Set the queue to acknowledged, completed or closed as work is done. An artist’s call consent or submission never subscribes them to marketing.
 
-The private desk shows last activity and upload history. An upload start without a later outcome can indicate interruption. The email queue shows failed deliveries and supports retries. A successful save or final submission records one application state and one receipt job. SMTP is retried and uses a stable Message-ID. A crash during delivery may still cause a provider to deliver an email more than once.
+The private desk shows last activity and upload history. An upload start without a later outcome can indicate interruption. A published artist can select **Update my profile or artwork** to send a new revision. The catalog keeps the existing published version until a reviewer publishes the revision. Final submission records the application state and queues one receipt when email delivery is configured. The email queue shows failed deliveries for retry with a stable Message-ID. A crash during delivery may still cause a provider to deliver an email more than once.
 
 ## Production setup
 
 See the [artsouthwest.com deployment instructions](DEPLOYMENT.md) and [Render Blueprint](render.yaml).
 
-Use one Node service with a durable, private, local disk volume. The [Dockerfile](Dockerfile) runs the service as a non-root user. Use a single replica and keep the SQLite database and media on the same mounted disk. Use a TLS proxy that serves only the configured public origin. Keep the application port private to the proxy. Set the proxy body limit to at least 12 MiB and allow 90 seconds for uploads. Configure `TRUST_PROXY_HOPS=1` only if exactly one trusted reverse proxy sits in front. Use a host volume service that supports local filesystem locks. A multi-instance design would need a shared database, object storage and distributed job processing.
+Use one Node service behind a TLS proxy that serves the configured public origin. Keep the application port private to the proxy. Allow at least 12 MiB and 90 seconds for uploads. Configure `TRUST_PROXY_HOPS=1` if exactly one trusted reverse proxy sits in front. The [Dockerfile](Dockerfile) runs the service as a non-root user. The SQLite deployment uses one replica with the database and media on a mounted disk that supports local filesystem locks.
+
+### Neon Postgres and Object Storage
+
+The app uses Neon when `DATABASE_URL` is set. The Node server uses a Postgres connection pool and keeps originals and derivatives in the private `uploads` bucket declared in `neon.ts`. Set `NEON_MEDIA_BUCKET` if deploying to a different private bucket. The server checks draft or publication permission before serving an image.
+
+Run `neon deploy` on the linked branch to provision services and pull `DATABASE_URL`, `DATABASE_URL_UNPOOLED`, `AWS_ENDPOINT_URL_S3`, `AWS_REGION`, `AWS_ACCESS_KEY_ID`, and `AWS_SECRET_ACCESS_KEY`. Apply the versioned schema using `npm run migrate:postgres`, then run `npm run build` and `npm start`. The migration uses the direct connection string. The app loads the ignored `.env` and `.env.local` files. Keep the database and storage credentials on the server.
+
+The Neon schema command initializes tables. Use the [migration and verification runbook](DEPLOYMENT.md#move-the-live-sqlite-records-to-neon) to move existing records and images before switching the public origin. The backup and retention commands below operate on the SQLite data directory.
 
 | Setting | Purpose |
 |---|---|
@@ -51,7 +60,7 @@ Use one Node service with a durable, private, local disk volume. The [Dockerfile
 
 Set secrets through your host. Generate a random queue key with `openssl rand -hex 32`. Start the process after building. The app exposes `/api/health`. Test one fictional submission and real mailbox delivery, including resume and receipt, before sending the campaign. The Mailchimp CTA points to the form origin with `/?campaign=taos-artists`. Send the invitation only to contacts with documented permission. No campaign sending is built into the form.
 
-Production config checks provide a guard against using the local email spool accidentally. Test that asset access and email work on the selected host before moving to real artist data. This repository supplies the app and deployment instructions. It has no production domain, SMTP credentials or live checkout. [SQLite single-host guidance](https://www.sqlite.org/whentouse.html) · [Mailchimp permission guidance](https://mailchimp.com/help/the-importance-of-permission/).
+Production config checks provide a guard against using the local email spool accidentally. Test that asset access and email work on the selected host before moving to real artist data. The live deployment uses artsouthwest.com. Configure the sender on the server before enabling transactional email. [SQLite single-host guidance](https://www.sqlite.org/whentouse.html) · [Mailchimp permission guidance](https://mailchimp.com/help/the-importance-of-permission/).
 
 ### Catalog feed
 
@@ -75,4 +84,4 @@ npm run test:browser
 
 The API tests start a loopback server and use fictional records and a simulated mailer. They verify the 1,080-pixel threshold, resume links, stale edits, media access, duplicate callbacks and receipts, editorial publication, sold and withdrawn records, mail retry, backup and restore, and retention. Browser tests use local Chrome and a private test email spool. They cover desktop callback handling and an iPhone-sized submission and resume. If using Playwright’s bundled Chromium, install it and set `PLAYWRIGHT_USE_BUNDLED=1` for the browser test. Browser tests require the prior build.
 
-The header uses the ArtSouthwest wordmark. The Studio Light photograph depicts a fictional studio.
+The Adobe Door photograph depicts a fictional studio.

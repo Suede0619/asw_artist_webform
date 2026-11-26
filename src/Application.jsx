@@ -1,25 +1,26 @@
 import React, { useEffect, useState } from 'react';
-import { checkDraft, COMMISSION, emptyWork, MAX_WORKS, MAX_WORK_IMAGES, MIN_WORKS } from '../shared/intake.mjs';
+import { checkDraft, COMMISSION, emptyWork, MAX_WORKS, MAX_WORK_IMAGES, MIN_WORKS, SUBMISSION_RECEIPT } from '../shared/intake.mjs';
 import { request } from './api.mjs';
 import { PhotoCard, PhotoPicker } from './PhotoField.jsx';
 import { useDraft } from './useDraft.mjs';
-import { Check, ErrorBox, Field, Panel, Select, statuses, TextArea } from './ui.jsx';
+import { campaign, route, Check, ErrorBox, Field, Panel, Select, statuses, TextArea } from './ui.jsx';
 
 const steps = [['profile', 'Artist profile'], ['works', 'Artwork'], ['review', 'Review']];
 const editable = (status) => ['draft', 'changes_requested'].includes(status);
 
 export function Application() {
+  const manage = new URLSearchParams(window.location.search).get('manage') === '1';
   const [application, setApplication] = useState(null);
   const [error, setError] = useState(null);
   useEffect(() => {
-    request('/application').then(setApplication).catch(setError);
-  }, []);
+    const load = manage ? request('/application') : request('/application', 'POST', { campaign: campaign() });
+    load.then(setApplication).catch(setError);
+  }, [manage]);
   if (error) return <Panel title="Open your submission">
     <ErrorBox error={error} />
-    <a className="button" href="/start?resume=1">Email me a private link</a>
+    <a className="button" href={route(manage ? '/resume' : '/apply')}>{manage ? 'Recover my submission' : 'Try again'}</a>
   </Panel>;
   if (!application) return <Panel title="Your submission"><p role="status">Loading…</p></Panel>;
-  const manage = new URLSearchParams(window.location.search).get('manage') === '1';
   if (manage || !editable(application.status)) return <SubmissionStatus application={application} update={setApplication} />;
   return <EditApplication key={application.id} application={application} onSubmitted={setApplication} />;
 }
@@ -30,20 +31,21 @@ function InputGroup({ fields, get }) {
   </div>;
 }
 
-function Profile({ profile, email, applicationId, change, issues, onBusy, busy }) {
+function Profile({ profile, applicationId, change, issues, onBusy, busy }) {
   const get = (key) => ({
     id: 'profile.' + key, value: profile[key], error: issues['profile.' + key],
     onChange: (event) => change(key, event.target.value),
   });
   return <div className="stack">
-    <p className="intro small">Tell us about your practice. We’ll use this to prepare your profile for review.</p>
+    <p className="intro small">Introduce readers to your practice.</p>
     <InputGroup get={get} fields={[
       ['name', 'Artist name', { maxLength: 120, autoComplete: 'name', required: true }],
       ['phone', 'Phone number', { type: 'tel', maxLength: 32, autoComplete: 'tel', required: true }],
       ['city', 'City or town', { maxLength: 120, autoComplete: 'address-level2', required: true }],
       ['region', 'State or region', { maxLength: 100, autoComplete: 'address-level1', required: true }],
     ]} />
-    <p className="field-hint">We use {email} and your phone number to follow up. Your contact details stay private.</p>
+    <Field {...get('email')} label="Email address" type="email" autoComplete="email" maxLength={254} required />
+    <p className="field-hint">We use your email and phone to contact you about your feature. We keep those details private. You can provide a separate link for public inquiries.</p>
     <TextArea {...get('bio')} label="Short artist bio" hint="A few sentences about your practice, materials and where you work."
       maxLength={1800} required />
     <fieldset className="media-section">
@@ -143,13 +145,14 @@ function WorkCard({ work, applicationId, index, count, active, toggle, edit, rem
   </article>;
 }
 
-function ReviewSummary({ draft, email, issues, change, navigate }) {
+function ReviewSummary({ draft, issues, change, navigate }) {
   const permissions = draft.permissions;
   return <div className="stack">
+    <p className="intro small">Check your profile and artwork details. Tell us if a gallery represents any of the work or needs to approve its inclusion.</p>
     <div className="review-block">
       <h3>Artist profile</h3>
       <p><strong>{draft.profile.name}</strong><br />{draft.profile.city}, {draft.profile.region}</p>
-      <p className="field-hint">Private contact: {email} · {draft.profile.phone}</p>
+      <p className="field-hint">Private contact: {draft.profile.email} · {draft.profile.phone}</p>
       <button className="text-button" type="button" onClick={() => navigate('profile')}>Edit artist profile</button>
     </div>
     <div className="review-block">
@@ -159,12 +162,12 @@ function ReviewSummary({ draft, email, issues, change, navigate }) {
     </div>
     <fieldset className="stack compact">
       <legend>Permissions and sales disclosure</legend>
-      <Check id="permissions.review" label="I have permission to share these materials for review."
+      <Check id="permissions.review" label="I have permission to submit these materials."
         checked={permissions.review} change={(value) => change('review', value)} error={issues['permissions.review']} required />
       <Check id="permissions.publicUse"
         label="I give ArtSouthwest permission to show the profile, works and credited image copies I submit on its website, subject to the limits below."
-        checked={permissions.publicUse} change={(value) => change('publicUse', value)} />
-      <p className="field-hint">You can submit with website permission unchecked. We’ll ask you to confirm before publishing.</p>
+        checked={permissions.publicUse} change={(value) => change('publicUse', value)}
+        error={issues['permissions.publicUse']} required />
       <TextArea id="permissions.limitations" label="Permission limits or credit instructions (optional)" rows={2}
         value={permissions.limitations} maxLength={800} onChange={(event) => change('limitations', event.target.value)} />
       <Check id="permissions.commission"
@@ -172,7 +175,6 @@ function ReviewSummary({ draft, email, issues, change, navigate }) {
           '% commission on completed artwork sales through the platform. I can review and accept seller terms separately.'}
         checked={permissions.commission} change={(value) => change('commission', value)}
         error={issues['permissions.commission']} required />
-      <p className="field-hint">Our <a href="/privacy" target="_blank" rel="noreferrer">privacy and submissions page</a> describes how we use your details.</p>
     </fieldset>
   </div>;
 }
@@ -213,7 +215,7 @@ function EditApplication({ application, onSubmitted }) {
   }
   async function advance() {
     if (busy || uploads) return;
-    const found = checkDraft(draft);
+    const found = checkDraft(draft, { checkEmail: draft.step === 'review' || Boolean(issues['profile.email']) });
     const subset = Object.fromEntries(Object.entries(found).filter(([key]) => draft.step === 'review' ||
       (draft.step === 'profile' ? key.startsWith('profile.') : key.startsWith('work.') || key === 'works')));
     if (Object.keys(subset).length) {
@@ -257,8 +259,7 @@ function EditApplication({ application, onSubmitted }) {
     setError(null);
     try {
       await flush();
-      await request('/session/logout', 'POST');
-      window.location.assign('/start?resume=1');
+      window.location.assign(route('/?saved=1'));
     } catch (failure) {
       setError(failure);
       setBusy(false);
@@ -270,7 +271,7 @@ function EditApplication({ application, onSubmitted }) {
     setError(null);
     try {
       await flush();
-      window.location.assign('/apply?manage=1');
+      window.location.assign(route('/apply?manage=1'));
     } catch (failure) {
       setError(failure);
       setBusy(false);
@@ -306,14 +307,15 @@ function EditApplication({ application, onSubmitted }) {
             window.location.reload();
           } }}>
           Open saved draft</button> : <button className="text-button" type="button" onClick={() => flush().catch(() => {})}>Retry save</button>}
-        {saveState.error.status === 401 && <p><a href="/start?resume=1" target="_blank" rel="noreferrer">Open a fresh link in another tab</a>, then retry here.</p>}
+        {saveState.error.status === 401 && application.canEmailLink &&
+          <p><a href={route('/resume')} target="_blank" rel="noreferrer">Open a fresh link in another tab</a>, then retry here.</p>}
       </div>}
       <form noValidate onSubmit={(event) => { event.preventDefault(); advance(); }}>
         <fieldset className="main-fields" disabled={busy}>
-          {draft.step === 'profile' && <Profile profile={draft.profile} email={application.email} applicationId={application.id}
+          {draft.step === 'profile' && <Profile profile={draft.profile} applicationId={application.id}
             change={changeProfile} issues={issues} onBusy={onBusy} busy={uploads > 0} />}
           {draft.step === 'works' && <div className="stack">
-            <p className="intro small">Add three to five works you could offer for sale now.</p>
+            <p className="intro small">Share three to five works available for sale, with a brief description of each.</p>
             <p className="field-hint">{draft.works.length} of {MAX_WORKS} work entries · {MIN_WORKS} required</p>
             {draft.works.map((work, index) =>
               <WorkCard key={work.id} work={work} applicationId={application.id} index={index} count={draft.works.length} active={openWork === work.id}
@@ -324,14 +326,14 @@ function EditApplication({ application, onSubmitted }) {
             {draft.works.length < MAX_WORKS && <button className="button secondary left" type="button"
               onClick={addWork} disabled={uploads > 0}>Add a work</button>}
           </div>}
-          {draft.step === 'review' && <ReviewSummary draft={draft} email={application.email} navigate={navigate}
+          {draft.step === 'review' && <ReviewSummary draft={draft} navigate={navigate}
             issues={issues} change={changePermission} />}
           <ErrorBox error={error} />
           <div className="actions next-actions">
             {stepIndex > 0 && <button type="button" className="button secondary" disabled={uploads > 0}
               onClick={() => navigate(steps[stepIndex - 1][0])}>Back</button>}
             <button type="submit" className="button" disabled={uploads > 0}>
-              {busy ? 'Saving…' : draft.step === 'review' ? 'Send my work for review' : 'Continue'}
+              {busy ? 'Saving…' : draft.step === 'review' ? 'Submit my work' : 'Continue'}
             </button>
           </div>
         </fieldset>
@@ -376,13 +378,42 @@ function SubmissionStatus({ application, update }) {
       setError(failure);
     }
   }
+  async function emailLink() {
+    setBusy(true);
+    setError(null);
+    setFeedback('');
+    try {
+      await request('/application/link', 'POST', undefined, application.id);
+      setFeedback('Check your email for a private link to your submission.');
+    } catch (failure) {
+      setError(failure);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function revise() {
+    setBusy(true);
+    setError(null);
+    try {
+      const revised = await request('/application/revise', 'POST', { revision: application.revision }, application.id);
+      update(revised);
+      window.location.assign(route('/apply'));
+    } catch (failure) {
+      setError(failure);
+    } finally {
+      setBusy(false);
+    }
+  }
   const current = application.draft.works.filter((work) => work.availability === 'available');
   const saleOptions = new Map([...application.publishedWorks, ...current].map(({ id, title }) => [id, title]));
   const title = { withdrawn: 'Submission withdrawn', published: 'Your profile is published',
     draft: 'Manage your draft', changes_requested: 'Manage your submission' }[application.status] || 'We received your work';
-  return <Panel title={title} intro={application.status === 'submitted'
-    ? 'Thank you for sharing your work. We’ll review your submission and email you with the next step.' : undefined}>
-    <dl className="summary-list"><dt>Reference</dt><dd>{application.reference}</dd><dt>Status</dt><dd>{statuses[application.status]}</dd></dl>
+  const submitted = application.status === 'submitted';
+  const receipt = application.draft.permissions.publicUse ? SUBMISSION_RECEIPT :
+    'Thank you for sharing your work. We’ll contact you about permission to publish.';
+  return <Panel title={title} intro={submitted ? receipt : undefined}>
+    <dl className="summary-list"><dt>Reference</dt><dd>{application.reference}</dd><dt>Status</dt><dd>{submitted ? 'Submitted' : statuses[application.status]}</dd></dl>
+    {submitted && <p>If a piece sells or its price changes, please let us know before publication.</p>}
     {feedback && <p role="status" className="notice">{feedback}</p>}
     {application.status !== 'withdrawn' && <form className="stack review-block" onSubmit={send}>
       <Select id="report-kind" label="Send an update" value={kind} required
@@ -399,7 +430,11 @@ function SubmissionStatus({ application, update }) {
     </form>}
     <ErrorBox error={error} />
     <div className="actions next-actions">
-      {editable(application.status) && <a className="quiet-link" href="/apply">Return to editing</a>}
+      {application.status === 'published' && <button type="button" className="button secondary"
+        disabled={busy} onClick={revise}>Update my profile or artwork</button>}
+      {editable(application.status) && <a className="quiet-link" href={route('/apply')}>Return to editing</a>}
+      {application.canEmailLink && application.status !== 'withdrawn' &&
+        <button type="button" className="text-button" disabled={busy} onClick={emailLink}>Email me a private link</button>}
       <button type="button" className="text-button" onClick={logout}>Sign out</button>
     </div>
   </Panel>;

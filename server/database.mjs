@@ -2,27 +2,56 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
+const applicationColumns = `
+  id TEXT PRIMARY KEY, email TEXT UNIQUE COLLATE NOCASE,
+  campaign TEXT NOT NULL, status TEXT NOT NULL
+    CHECK(status IN ('draft','submitted','changes_requested','published','withdrawn')),
+  revision INTEGER NOT NULL, draft TEXT NOT NULL CHECK(json_valid(draft)),
+  review_note TEXT NOT NULL DEFAULT '', policy_version TEXT,
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+  first_submitted_at INTEGER, submitted_at INTEGER
+`;
+
+function migrateDirectDrafts(db) {
+  db.exec('PRAGMA foreign_keys = OFF');
+  try {
+    transaction(db, () => {
+      if (db.prepare('PRAGMA user_version').get().user_version !== 1) return;
+      db.exec(`
+        CREATE TABLE updated_applications (${applicationColumns});
+        INSERT INTO updated_applications (
+          id,email,campaign,status,revision,draft,review_note,policy_version,
+          created_at,updated_at,first_submitted_at,submitted_at
+        )
+        SELECT id,email,campaign,status,revision,
+          json_set(draft,'$.profile.email',COALESCE(json_extract(draft,'$.profile.email'),email,'')),
+          review_note,policy_version,created_at,updated_at,first_submitted_at,submitted_at
+        FROM applications;
+        DROP TABLE applications;
+        ALTER TABLE updated_applications RENAME TO applications;
+        ALTER TABLE resume_links ADD COLUMN recipient TEXT;
+        PRAGMA user_version = 2;
+      `);
+      if (db.prepare('PRAGMA foreign_key_check').get()) throw new Error('The draft migration would leave missing references.');
+    });
+  } finally {
+    db.exec('PRAGMA foreign_keys = ON');
+  }
+}
+
 export function openDatabase(directory) {
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   const db = new DatabaseSync(join(directory, 'intake.sqlite'));
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA synchronous = FULL; PRAGMA busy_timeout = 5000;');
   const version = db.prepare('PRAGMA user_version').get().user_version;
-  if (version > 1) {
+  if (version > 2) {
     db.close();
     throw new Error('The intake database requires a newer application version.');
   }
   if (!version) {
     db.exec(`
       BEGIN IMMEDIATE;
-      CREATE TABLE applications (
-        id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE COLLATE NOCASE,
-        campaign TEXT NOT NULL, status TEXT NOT NULL
-          CHECK(status IN ('draft','submitted','changes_requested','published','withdrawn')),
-        revision INTEGER NOT NULL, draft TEXT NOT NULL CHECK(json_valid(draft)),
-        review_note TEXT NOT NULL DEFAULT '', policy_version TEXT,
-        created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
-        first_submitted_at INTEGER, submitted_at INTEGER
-      );
+      CREATE TABLE applications (${applicationColumns});
       CREATE TABLE versions (
         app_id TEXT NOT NULL REFERENCES applications(id) ON DELETE CASCADE,
         revision INTEGER NOT NULL, kind TEXT NOT NULL,
@@ -39,7 +68,7 @@ export function openDatabase(directory) {
       CREATE INDEX assets_by_application ON assets(app_id, created_at);
       CREATE TABLE resume_links (
         hash TEXT PRIMARY KEY, app_id TEXT NOT NULL REFERENCES applications(id) ON DELETE CASCADE,
-        expires_at INTEGER NOT NULL, used_at INTEGER
+        expires_at INTEGER NOT NULL, used_at INTEGER, recipient TEXT
       );
       CREATE TABLE artist_sessions (
         hash TEXT PRIMARY KEY, app_id TEXT NOT NULL REFERENCES applications(id) ON DELETE CASCADE,
@@ -90,10 +119,11 @@ export function openDatabase(directory) {
         PRIMARY KEY(bucket, window)
       );
       CREATE TABLE landing_sessions (id TEXT PRIMARY KEY, campaign TEXT NOT NULL, created_at INTEGER NOT NULL);
-      PRAGMA user_version = 1;
+      PRAGMA user_version = 2;
       COMMIT;
     `);
   }
+  if (version === 1) migrateDirectDrafts(db);
   return db;
 }
 

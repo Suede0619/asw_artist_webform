@@ -9,15 +9,22 @@
   "scripts": {
     "dev": "npm run build && npm start",
     "build": "vite build",
-    "start": "node --env-file-if-exists=.env server/index.mjs",
+    "start": "node --env-file-if-exists=.env --env-file-if-exists=.env.local server/index.mjs",
+    "migrate:postgres": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/migrate-postgres.mjs",
     "test": "node --test tests/*.test.mjs",
     "test:browser": "playwright test",
     "backup": "node --env-file-if-exists=.env scripts/backup.mjs",
-    "retention": "node --env-file-if-exists=.env scripts/retention.mjs"
+    "retention": "node --env-file-if-exists=.env scripts/retention.mjs",
+    "import:sqlite": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/import-sqlite.mjs",
+    "start:tunnel": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/tunnel-origin.mjs"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1178.0",
+    "@neon/config": "^1.14.8",
+    "@neon/env": "^2.1.11",
     "express": "5.3.0",
     "nodemailer": "10.6.1",
+    "pg": "^8.23.1",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "sharp": "0.35.5",

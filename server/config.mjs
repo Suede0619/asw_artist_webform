@@ -49,10 +49,25 @@ export function loadConfig(env = process.env) {
       throw new Error('SMTP_URL must be a valid smtp:// or smtps:// server URL.');
     }
   }
+  const databaseUrl = env.DATABASE_URL;
+  const storage = {
+    bucket: env.NEON_MEDIA_BUCKET || 'uploads',
+    endpoint: env.AWS_ENDPOINT_URL_S3,
+    region: env.AWS_REGION,
+    accessKeyId: env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: env.AWS_SECRET_ACCESS_KEY,
+  };
+  if (databaseUrl && !Object.values(storage).every(Boolean)) {
+    throw new Error('Neon requires the object storage endpoint, region, and access credentials.');
+  }
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
   const hexKey = env.MAIL_QUEUE_KEY || localKey(dataDir);
   if (!/^[a-f0-9]{64}$/i.test(hexKey)) throw new Error('MAIL_QUEUE_KEY must be 64 hexadecimal characters.');
   return {
+    databaseUrl, objectStorage: databaseUrl ? storage : null,
+    catalogDir: env.CATALOG_DIR ? resolve(env.CATALOG_DIR) : null,
+    itineraryKey: env.ITINERARY_OPENAI_API_KEY || '',
+    itineraryModel: env.ITINERARY_OPENAI_MODEL || 'gpt-4o-mini',
     production, port, host, publicUrl: publicUrl.origin, secureCookie: publicUrl.protocol === 'https:',
     trustProxy, dataDir, smtpUrl: env.SMTP_URL || '', mailFrom: env.MAIL_FROM || 'ArtSouthwest <preview@example.test>',
     replyTo: env.REPLY_TO || '', mailKey: Buffer.from(hexKey, 'hex'), reviewerPassword,
