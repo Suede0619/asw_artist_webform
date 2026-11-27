@@ -240,6 +240,9 @@ test('signed Stripe events can reserve and pay one approved ad without recording
   await state.receive(event,signature);
   assert.equal((await state.status(proposal.id,proposal.token)).state,'paid');
   assert.equal((await f.get('/api/editorial/media/'+record.image_id)).status,200);
+  const weekly=createNewsletter(f.editorial,{origin:'https://artsouthwest.example',sources:[],mailchimp:{send:false}},async()=>[]);
+  await weekly.jobs(new Date(offsetDate(record.draft.issueDate,1)+'T16:00:00Z'));
+  assert.equal((await state.status(proposal.id,proposal.token)).state,'refund_review');
 });
 
 test('an expired reservation reconciles with Stripe after a lost webhook',async t=>{

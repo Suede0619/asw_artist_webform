@@ -230,6 +230,11 @@ export function createNewsletter(editorial, settings, getPublications, fetcher=f
       const remote=mailchimpClient(settings.mailchimp,fetcher);
       for (const row of unsettled) await withLease('delivery:'+row.issue_date,()=>reconcile(row,remote,date),false);
     }
+    await db.prepare(`UPDATE editorial_slots SET state='refund_review' WHERE state='paid' AND issue_date<?
+      AND NOT EXISTS (
+        SELECT 1 FROM editorial_issues i LEFT JOIN editorial_deliveries d ON d.issue_date=i.issue_date
+        WHERE i.issue_date=editorial_slots.issue_date AND (i.state='sent' OR (i.state='approved' AND d.issue_date IS NOT NULL))
+      )`).run(date);
     await db.prepare("UPDATE editorial_slots SET state='released' WHERE state='reserved' AND checkout_id IS NULL AND expires_at<?").run(now.valueOf());
     if (time>='05:00') await withLease('calendar:'+date, () => discoverCalendar(editorial,settings,now,fetcher));
     if (isIssueDate(date) && time>='07:00') {
