@@ -176,7 +176,7 @@ test('draft, email resume, media isolation, versioning, publication, sale, withd
   };
   const portrait = await upload('portrait');
   const { draft } = record;
-  draft.profile = { ...draft.profile, name: 'Sample Artist', phone: '505 555 0134', city: 'Taos',
+  draft.profile = { ...draft.profile, name: 'Sample Artist', phone: '505 555 0134', city: 'Rinconada',
     bio: 'I make fictional pieces for testing.', portrait, portraitRights: true, studio: 'Private visit instructions.' };
   const privateMedia = await artist('/application/assets/' + portrait.id);
   assert.equal(privateMedia.status, 200);
@@ -193,6 +193,7 @@ test('draft, email resume, media isolation, versioning, publication, sale, withd
       height: '12', width: '17', units: 'in', price: '120.50', availability: 'available', rights: true, seller: 'artist',
       restrictions: 'Private test instructions.', images: [await upload('work')] });
   }
+  Object.assign(draft.works[0],{seller:'gallery',galleryName:'Fictional Gallery',galleryContact:'Private gallery contact.'});
   draft.permissions = { review: true, publicUse: false, commission: true, limitations: '' };
   draft.step = 'review';
   const saved = await artist('/application', 'PUT', { revision: record.revision, draft }, headers);
@@ -251,6 +252,10 @@ test('draft, email resume, media isolation, versioning, publication, sale, withd
   const { content: catalog, headers: publicHeaders } = await other('/catalog');
   assert.equal(publicHeaders.get('access-control-allow-origin'), '*');
   assert.equal(catalog.artists.length, 1);
+  assert.equal(catalog.artists[0].market, 'taos');
+  assert.equal(catalog.artists[0].works[0].seller, 'gallery');
+  assert.equal(catalog.artists[0].works[0].galleryName, 'Fictional Gallery');
+  assert.doesNotMatch(JSON.stringify(catalog), /Private gallery contact/);
   assert.equal(catalog.artists[0].works[0].price.amountMinor, 12050);
   assert.ok(!JSON.stringify(catalog).includes(email));
   assert.ok(!JSON.stringify(catalog).includes('Private'));

@@ -154,7 +154,7 @@ export function Privacy() {
       <p>We count invitation visits and submissions to understand whether the form works. We do not use your call or submission to subscribe you to marketing email.</p>
       <h2>What you can change</h2>
       <p>Use a private submission link to return, report that a work sold, request a correction or withdraw. To ask about your information or request deletion, reply to a submission email or request a call.</p>
-      <p>We remove inactive drafts after 30 days and clear withdrawn submissions from the active system after 30 days. Private backup copies rotate separately. We keep application and permission records while a feature remains under review or published.</p>
+      <p>We review inactive drafts and withdrawn submissions for removal. Private backups rotate separately. We keep application and permission records while a feature remains under review or published.</p>
       <a className="quiet-link" href="/callback">Request a call</a>
     </div>
   </Panel>;

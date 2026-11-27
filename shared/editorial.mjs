@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { catalogMarket } from './intake.mjs';
 
 const optional = max => z.string().trim().max(max).default('');
 const required = max => z.string().trim().min(1).max(max);
@@ -17,10 +18,7 @@ export const offsetDate = (date, days) => {
 };
 export const isIssueDate = date => new Date(date + 'T12:00:00Z').getUTCDay() === 4;
 export function artistMarket(profile) {
-  const locality=String(profile.city).split(',')[0].replace(/\s+NM\.?$/i,'').trim();
-  if (/^santa fe$/i.test(locality)) return 'santa-fe';
-  if (/^(taos|el prado|arroyo seco|ranchos de taos|taos ski valley)$/i.test(locality)) return 'taos';
-  return '';
+  return catalogMarket(profile.city);
 }
 export const startsThisWeek = (row, day, end) => row.startDate <= end && row.endDate >= day;
 export const expired = (row, when) => row.endDate < when.slice(0, 10) ||
