@@ -15,25 +15,23 @@ export function Landing() {
     request('/visit', 'POST', { campaign: campaign(), session }).catch(() => {});
   }, []);
   return (
-    <div className="shell invitation">
-      <p className="invitation-brand">ArtSouthwest</p>
-      <section className="hero">
-        <div className="hero-copy">
-          <h1>We’d like to feature your work in our first edition.</h1>
-          <p>ArtSouthwest pairs a curated online art catalog with an insider’s guide to Taos and Santa Fe. Alongside the artwork, collectors will find galleries, studio visits and distinctive places to eat and stay.</p>
-          <p>Select works that best convey the character of your practice. Please provide a short bio and a portrait, along with three to five works available for sale. For each work, include an image, title, brief description, medium, dimensions and price. Our team reviews your submission before publishing your profile and artwork on ArtSouthwest.</p>
-          <p className="offer">ArtSouthwest charges a {COMMISSION}% commission on completed artwork sales through the website.</p>
-          {saved && <p role="status">Your draft is saved. Return in this browser to continue.</p>}
-          <div className="actions">
-            <a className="button" href={route('/apply')}>{saved ? 'Continue my submission' : 'Start my submission'}</a>
-            <a className="quiet-link" href={route('/callback')}>Request a call</a>
-          </div>
+    <section className="shell invitation" aria-labelledby="invitation-title">
+      <div className="hero-copy">
+        <p className="invitation-brand">ArtSouthwest</p>
+        <h1 id="invitation-title">We’d like to feature your work in our first edition.</h1>
+        <p>ArtSouthwest pairs a curated online art catalog with an insider’s guide to Taos and Santa Fe. Alongside the artwork, collectors will find galleries, studio visits and distinctive places to eat and stay.</p>
+        <p>Select works that best convey the character of your practice. Please provide a short bio and a portrait, along with three to five works available for sale. For each work, include an image, title, brief description, medium, dimensions and price. Our team reviews your submission before publishing your profile and artwork on ArtSouthwest.</p>
+        <p className="offer">ArtSouthwest charges a {COMMISSION}% commission on completed artwork sales through the website.</p>
+        {saved && <p role="status">Your draft is saved. Return in this browser to continue.</p>}
+        <div className="actions">
+          <a className="button" href={route('/apply')}>{saved ? 'Continue my submission' : 'Start my submission'}</a>
+          <a className="quiet-link" href={route('/callback')}>Request a call</a>
         </div>
-        <figure className="hero-image">
-          <img src="/adobe-door.jpg" width="1536" height="1024" alt="An open blue door reveals an easel inside an adobe studio." fetchPriority="high" />
-        </figure>
-      </section>
-    </div>
+      </div>
+      <figure className="hero-image">
+        <img src="/adobe-door.jpg" width="1536" height="1024" alt="An open blue door reveals an easel inside an adobe studio." fetchPriority="high" />
+      </figure>
+    </section>
   );
 }
 

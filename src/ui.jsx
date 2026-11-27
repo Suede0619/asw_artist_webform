@@ -14,17 +14,19 @@ export function Layout({ children }) {
     <main id="main" tabIndex="-1">{children}</main>
     <footer className="footer">
       <div className="shell footer-inner">
-        <span>ArtSouthwest</span>
+        <a className="footer-brand" href="https://artsouthwest.com/">ArtSouthwest</a>
       </div>
     </footer>
   </>;
 }
 
 export function Panel({ title, intro, children, narrow = true }) {
-  return <section className={'shell panel ' + (narrow ? 'narrow' : '')}>
-    <h1 tabIndex="-1">{title}</h1>
-    {intro && <p className="intro">{intro}</p>}
-    {children}
+  return <section className="shell panel">
+    <div className={narrow ? 'panel-content narrow' : 'panel-content'}>
+      <h1 tabIndex="-1">{title}</h1>
+      {intro && <p className="intro">{intro}</p>}
+      {children}
+    </div>
   </section>;
 }
 

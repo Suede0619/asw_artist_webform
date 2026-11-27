@@ -279,8 +279,8 @@ function EditApplication({ application, onSubmitted }) {
   }
 
   return <section className="shell panel intake-layout">
+    <h1 className="intake-title">Artist submission</h1>
     <aside className="steps-sidebar">
-      <h1>Artist submission</h1>
       <nav aria-label="Submission steps"><ol className="steps">
         {steps.map(([key, label], index) => <li key={key}>
           <button type="button" aria-current={key === draft.step ? 'step' : undefined}

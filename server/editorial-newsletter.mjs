@@ -40,7 +40,7 @@ export function renderIssue(issue, settings) {
     return {
       html:'<tr><td style="padding:18px 0;border-bottom:1px solid #dcd5c9">' +
         (src ? '<img src="'+esc(src)+'" width="552" alt="'+esc(entry.imageAlt)+'" style="display:block;width:100%;max-width:552px;height:auto;border:0">' : '') +
-        '<p style="margin:14px 0 3px;color:#4e5c52;font-size:13px">'+esc(meta)+'</p><h3 style="margin:0 0 8px;font:22px Georgia,serif"><a style="color:#283c32" href="'+esc(href)+'">'+esc(entry.title)+'</a></h3>'+
+        '<p style="margin:14px 0 3px;color:#4e5c52;font-size:14px">'+esc(meta)+'</p><h3 style="margin:0 0 8px;font:22px Georgia,serif"><a style="color:#283c32" href="'+esc(href)+'">'+esc(entry.title)+'</a></h3>'+
         '<p style="margin:0 0 10px;line-height:1.55">'+esc(entry.summary)+'</p><a style="color:#283c32" href="'+esc(href)+'">'+esc(label)+'</a></td></tr>',
       plain:[meta,entry.title,entry.summary,href].join('\n'),
     };
@@ -69,7 +69,7 @@ export function renderIssue(issue, settings) {
     esc(showDate(issue.date)+' to '+showDate(offsetDate(issue.date,6)))+'</p><p>'+esc(copy)+'</p>'+
     sections.map(section=>'<h2 style="font:24px Georgia,serif;margin:28px 0 0">'+esc(section.title)+'</h2><table role="presentation" width="100%" cellspacing="0" cellpadding="0">'+
       section.rows.map(row=>row.html).join('')+'</table>').join('')+
-    '<p style="margin:24px 0 0;font-size:13px;line-height:1.5">'+footer.map(esc).join('<br>')+
+    '<p style="margin:24px 0 0;font-size:14px;line-height:1.5">'+footer.map(esc).join('<br>')+
     '<br><a style="color:#283c32" href="*|UNSUB|*">Unsubscribe</a></p></td></tr></table></td></tr></table></body></html>';
   const plain=[subject,copy,...sections.flatMap(section=>[section.title,...section.rows.map(row=>row.plain)]),...footer,'Unsubscribe: *|UNSUB|*'].join('\n\n');
   return { html,plain,subject,preview:copy };
