@@ -1,5 +1,12 @@
 import { z } from 'zod';
 
+export function catalogMarket(city) {
+  const locality=String(city).split(',')[0].replace(/\s+NM\.?$/i,'').trim();
+  if (/^santa fe$/i.test(locality)) return 'santa-fe';
+  if (/^(taos|el prado|arroyo seco|arroyo hondo|ranchos de taos|taos ski valley|rinconada)$/i.test(locality)) return 'taos';
+  return '';
+}
+
 export const POLICY_VERSION = '2026-11-23-v2';
 export const COMMISSION = 20;
 export const SUBMISSION_RECEIPT = 'Thank you for sharing your work. We’ve received your submission. Our team will review it before your profile and artwork appear on ArtSouthwest.';

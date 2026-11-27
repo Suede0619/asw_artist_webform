@@ -53,6 +53,6 @@ For a replacement deployment, use the following sequence.
 
 GitHub holds the source and GitHub Pages serves the design prototype. The live app uses Node for image processing, sessions, review and the mail worker. A static-only deployment would cover browsing pages. [GitHub Pages limits](https://docs.github.com/en/pages/getting-started-with-github-pages/github-pages-limits).
 
-For the itinerary, keep the optional `ITINERARY_OPENAI_API_KEY` on the server and set a project budget at the provider. The app validates proposed stop IDs against its own list and applies request limits. The route builder keeps offering suggested itineraries without model access. Test the model, unavailable stop flow and choices with the interaction designer before representing it as live AI.
+For the itinerary, keep the optional `ITINERARY_OPENAI_API_KEY` on the server and set a project budget at the provider. The app calculates feasible routes from published venue schedules, seasonal hours and estimated travel. The model can choose among those routes. The route builder offers suggested itineraries while model access is unavailable. Test the model, unavailable stop flow and choices with the interaction designer before representing it as live AI.
 
 SQLite backups and retention scripts apply to the local SQLite source. For hosted Neon, check the plan’s restore window, schedule secured database exports, and back up the private object bucket separately before real intake volume increases. Test a restore of a record and its media together.

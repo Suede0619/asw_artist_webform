@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
-  checkDraft, cleanEmail, emptyDraft, trustedLink, cents, POLICY_VERSION, campaignId, normalPhone,
+  checkDraft, cleanEmail, emptyDraft, trustedLink, cents, POLICY_VERSION, campaignId, normalPhone, catalogMarket,
 } from '../shared/intake.mjs';
 import { IntakeError } from './errors.mjs';
 import { draftLinkRecipient, queueDraftLink, queueReceipt } from './mail.mjs';
@@ -51,7 +51,7 @@ export function publicProjection(application, timestamp, slug) {
     id, src: '/api/catalog/media/' + id, credit: credit.trim(), alt: alt.trim() || defaultAlt,
   });
   return {
-    slug, name: p.name.trim(), city: p.city.trim(), region: p.region.trim(), bio: p.bio.trim(),
+    slug, name: p.name.trim(), city: p.city.trim(), market:catalogMarket(p.city), region: p.region.trim(), bio: p.bio.trim(),
     pronouns: p.pronouns.trim() || null, website: trustedLink(p.website) || null,
     contactLink: trustedLink(p.contactLink) || null, portrait: asset(p.portrait, 'Portrait of ' + p.name.trim()),
     updatedAt: new Date(timestamp).toISOString(),
@@ -61,6 +61,7 @@ export function publicProjection(application, timestamp, slug) {
       dimensions: { height: Number(w.height), width: Number(w.width), depth: w.depth.trim() ? Number(w.depth) : null, unit: w.units },
       price: { amountMinor: cents(w.price), currency: w.currency },
       availability: 'available', verifiedAt: new Date(timestamp).toISOString(),
+      seller:w.seller, galleryName:w.seller==='gallery' ? w.galleryName.trim() : null,
       images: w.images.map((image) => asset(image, w.title.trim())),
     })),
   };
@@ -294,8 +295,12 @@ export function createIntake(db, config) {
       if (action === 'publish') {
         if (app.status === 'changes_requested') throw new IntakeError(409, 'Wait for the artist to send the updated submission.');
         if (!clearance || !note) throw new IntakeError(422, 'Confirm clearance and record the evidence before publishing.');
-        checkComplete(JSON.parse(app.draft), true);
-        await checkAssets(db, id, JSON.parse(app.draft));
+        const draft=JSON.parse(app.draft);
+        checkComplete(draft, true);
+        if (!catalogMarket(draft.profile.city)) {
+          throw new IntakeError(422, 'Choose a Taos or Santa Fe area location before publishing.');
+        }
+        await checkAssets(db, id, draft);
         await db.prepare("UPDATE applications SET status='published',revision=revision+1,updated_at=?,review_note='' WHERE id=?")
           .run(now, id);
         const updated = await get(id);
