@@ -101,9 +101,12 @@ export function installEditorial({ app, api, editorial, config, reviewer, requir
       res.json(await editorial.attach(uuid.parse(req.params.id),meta.revision,req.body,meta.alt,meta.credit));
     });
     api.post('/review/editorial/records/:id',reviewer,async (req,res)=>{
-      const choice=z.object({ revision:z.number().int().positive(),action:z.enum(['approve','decline','withdraw']),
-        clearance:z.boolean().default(false),relatedId:uuid.or(z.literal('')).default(''),
-        artistSlug:z.string().max(110).default(''),summary:z.string().trim().max(900).optional(),note }).parse(req.body);
+      const choice=z.object({ revision:z.number().int().positive(),action:z.enum(['approve','decline','withdraw','revise']),
+        clearance:z.boolean().default(false),relatedId:uuid.or(z.literal('')).optional(),
+        artistSlug:z.string().max(110).optional(),summary:z.string().trim().max(900).optional(),
+        schedule:z.object({ startDate:z.iso.date(), endDate:z.iso.date(),
+          startTime:z.string().max(5),endTime:z.string().max(5),
+          scheduleStatus:z.enum(['scheduled','rescheduled','canceled','postponed']) }).optional(),note }).parse(req.body);
       try {
         const result=await editorial.decide(uuid.parse(req.params.id),choice);
         if (result.category==='calendar') onEditorialChange?.();
@@ -121,7 +124,8 @@ export function installEditorial({ app, api, editorial, config, reviewer, requir
     api.post('/review/editorial/issues/:date/approve',reviewer,async (req,res)=>{
       const date=issueDate.parse(req.params.date);
       const { digest, reviewNote }=z.object({ digest:z.string().regex(/^[a-f0-9]{64}$/),reviewNote:note }).parse(req.body);
-      if (date<denverTime().slice(0,10)) throw new IntakeError(422,'This issue date has passed.');
+      const today=denverTime().slice(0,10);
+      if (date<today || date>offsetDate(today,7)) throw new IntakeError(422,'Choose the next Thursday issue.');
       res.json(await newsletter.approve(date,digest,reviewNote));
     });
     api.get('/review/editorial/issues/:date/report',reviewer,async (req,res)=>{

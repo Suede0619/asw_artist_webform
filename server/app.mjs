@@ -416,5 +416,6 @@ export function createApp(config, { sendMail, serveUi = true, getPublications, o
     return res.status(500).json({ message: 'We couldn’t finish that request. Please try again.', incident });
   });
 
-  return { app, db: db.sqlite || db, intake, outbox, editorial, newsletter: editorialRoutes?.newsletter };
+  return { app, db: db.sqlite || db, intake, outbox, editorial, newsletter: editorialRoutes?.newsletter,
+    payments: editorialRoutes?.payments };
 }

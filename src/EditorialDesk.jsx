@@ -21,6 +21,11 @@ function Entry({ item, records, refresh }) {
   const [credit,setCredit] = useState('');
   const [imageRights,setImageRights] = useState(false);
   const view=item.draft;
+  const [schedule,setSchedule] = useState(()=>({ startDate:view.startDate,endDate:view.endDate,
+    startTime:view.startTime||'',endTime:view.endTime||'',scheduleStatus:view.scheduleStatus||'scheduled' }));
+  function scheduleField(key) {
+    return { value:schedule[key],onChange:event=>setSchedule(current=>({...current,[key]:event.target.value})) };
+  }
   async function run(operation) {
     setWorking(true);
     setError(null);
@@ -29,7 +34,8 @@ function Entry({ item, records, refresh }) {
     finally { setWorking(false); }
   }
   function decide(action) {
-    return run(() => request(recordPath(item.id),'POST',{ revision:item.revision,action,clearance,relatedId,artistSlug,note,summary }));
+    return run(() => request(recordPath(item.id),'POST',{ revision:item.revision,action,clearance,relatedId,artistSlug,note,summary,
+      schedule:action==='approve' && item.category==='calendar' ? schedule : undefined }));
   }
   function upload(event) {
     event.preventDefault();
@@ -60,14 +66,36 @@ function Entry({ item, records, refresh }) {
     {item.state==='pending' ? <>
       <label className="editorial-review-field">Public description<textarea value={summary} onChange={event=>setSummary(event.target.value)}
         maxLength={item.category==='sponsor'?250:900} rows={4}/></label>
-      {!item.image_id && <form onSubmit={upload} className="editorial-photo-form">
+      {item.category==='calendar' && <details className="details-block">
+        <summary>Correct the schedule</summary>
+        <div className="stack">
+          <div className="field-grid">
+            <Field id={'start-date-'+item.id} label="Start date" type="date" {...scheduleField('startDate')}/>
+            <Field id={'end-date-'+item.id} label="End date" type="date" {...scheduleField('endDate')}/>
+            {view.kind!=='exhibition' && <>
+              <Field id={'start-time-'+item.id} label="Start time in New Mexico" type="time" {...scheduleField('startTime')}/>
+              <Field id={'end-time-'+item.id} label="End time in New Mexico" type="time" {...scheduleField('endTime')}/>
+            </>}
+          </div>
+          <label className="editorial-review-field">Schedule status
+            <select {...scheduleField('scheduleStatus')}>
+              <option value="scheduled">Scheduled</option><option value="rescheduled">Rescheduled</option>
+              <option value="postponed">Postponed</option><option value="canceled">Canceled</option>
+            </select>
+          </label>
+        </div>
+      </details>}
+      <details className="details-block" open={!item.image_id || undefined}>
+        <summary>{item.image_id?'Replace the image':'Attach an image'}</summary>
+        <form onSubmit={upload} className="editorial-photo-form">
         <Field id={'editorial-photo-'+item.id} label="Cleared photo" type="file" accept="image/jpeg,image/png,image/webp" required
           onChange={event=>setPhoto(event.target.files[0])} />
         <Field id={'editorial-alt-'+item.id} label="Photo description" value={alt} required onChange={event=>setAlt(event.target.value)} />
         <Field id={'editorial-credit-'+item.id} label="Photo credit" value={credit} onChange={event=>setCredit(event.target.value)} />
         <label><input type="checkbox" required checked={imageRights} onChange={event=>setImageRights(event.target.checked)}/> I confirmed publication permission.</label>
         <button type="submit" className="button secondary" disabled={working}>Attach photo</button>
-      </form>}
+        </form>
+      </details>
       {view.kind==='opening' && <label className="editorial-review-field">Published exhibition
         <select value={relatedId} onChange={event=>setRelatedId(event.target.value)}>
           <option value="">Choose an exhibition when applicable</option>
@@ -85,7 +113,11 @@ function Entry({ item, records, refresh }) {
         <button type="button" className="button secondary" disabled={working} onClick={()=>decide('decline')}>Decline</button>
       </div>
     </> : <p>{view.summary}</p>}
-    {item.approved && <button className="text-button remove" type="button" disabled={working} onClick={()=>decide('withdraw')}>Withdraw</button>}
+    {item.approved && <div className="actions">
+      {item.category==='calendar' && item.state==='approved' && <button className="text-button" type="button"
+        disabled={working} onClick={()=>decide('revise')}>Edit listing</button>}
+      <button className="text-button remove" type="button" disabled={working} onClick={()=>decide('withdraw')}>Withdraw</button>
+    </div>}
   </article>;
 }
 
@@ -114,7 +146,7 @@ function Newsletter({ dashboard, refresh }) {
     <p>{dashboard.newsletterSending?'Approved issues are eligible for the Thursday send.':'The newsletter is in preview mode.'}</p>
     <button className="button secondary" type="button" disabled={busy} onClick={()=>preview(dashboard.nextIssue)}>Preview next issue</button>
     {dashboard.issues.map(row=><div className="desk-row" key={row.issue_date}>
-      <p>{row.issue_date} · {states[row.state]}{row.last_error?' · '+row.last_error:''}</p>
+      <p>{row.issue_date} · {row.dispatch_started_at&&row.state==='approved'?'Checking delivery':states[row.state]}{row.last_error?' · '+row.last_error:''}</p>
       <div className="actions">
         <button className="text-button" type="button" disabled={busy} onClick={()=>preview(row.issue_date)}>Open</button>
         {row.state==='sent' && <button className="text-button" type="button" disabled={busy}
@@ -123,7 +155,7 @@ function Newsletter({ dashboard, refresh }) {
     </div>)}
     {metrics && <dl className="metrics">{metrics.map(([k,v])=><div key={k}><dt>{k}</dt><dd>{v??'Unavailable'}</dd></div>)}</dl>}
     {issue && <section className="review-block">
-      <h3>{issue.preview.subject}</h3><p>{states[issue.state]}</p>
+      <h3>{issue.preview.subject}</h3><p>{issue.dispatch_started_at&&issue.state==='approved'?'Checking delivery':states[issue.state]}</p>
       <iframe title="Email preview" sandbox="" srcDoc={issue.preview.html} className="newsletter-preview"/>
       <details><summary>Plain text version</summary><pre className="weekly-plain">{issue.preview.plain}</pre></details>
       {issue.state==='draft' && <>

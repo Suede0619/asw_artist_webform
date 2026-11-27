@@ -38,6 +38,12 @@ export async function retain(directory, { apply = false, now = Date.now() } = {}
     });
 
     const referenced = new Set(db.prepare('SELECT id FROM assets').all().map((row) => row.id));
+    if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='editorial_records'").get()) {
+      for (const {image_id,approved_image_id} of db.prepare('SELECT image_id,approved_image_id FROM editorial_records').all()) {
+        if (image_id) referenced.add(image_id);
+        if (approved_image_id) referenced.add(approved_image_id);
+      }
+    }
     const vault = join(directory, 'media');
     if (existsSync(vault)) {
       for (const entry of await readdir(vault, { withFileTypes: true })) {

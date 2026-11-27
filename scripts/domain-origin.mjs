@@ -169,7 +169,7 @@ const appInstances = [artist, curator, catalog];
 try {
   const schema = await artist.db.prepare('SELECT version FROM asw_schema_migrations WHERE version=1').get();
   if (!schema) throw new Error('Run the Neon schema migration first.');
-  if (config.editorial && !(await artist.db.prepare('SELECT version FROM asw_schema_migrations WHERE version=2').get())) {
+  if (config.editorial && !(await artist.db.prepare('SELECT version FROM asw_schema_migrations WHERE version=3').get())) {
     throw new Error('Run the editorial migration before enabling MVP2.');
   }
   await publications.refresh();
@@ -201,7 +201,8 @@ queue?.unref();
 let editorialRun;
 const editorialQueue = config.editorial?.jobs ? setInterval(() => {
   if (editorialRun) return;
-  editorialRun = catalog.newsletter.jobs().catch(() => console.error('Editorial jobs need attention.'))
+  editorialRun = catalog.payments.reconcile().then(()=>catalog.newsletter.jobs())
+    .catch(() => console.error('Editorial jobs need attention.'))
     .finally(() => { editorialRun = null; });
 }, 60_000) : null;
 editorialQueue?.unref();

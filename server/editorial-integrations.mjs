@@ -1,6 +1,7 @@
 import { createHmac } from 'node:crypto';
 import { IntakeError } from './errors.mjs';
 import { sameSecret } from './security.mjs';
+import { denverTime } from '../shared/editorial.mjs';
 
 async function jsonRequest(url, options, fetcher) {
   const response = await fetcher(url, { ...options, signal:AbortSignal.timeout(12000) });
@@ -42,23 +43,49 @@ export function mailchimpClient(settings, fetcher=fetch) {
 export function stripePayments(editorial, settings, origin, fetcher=fetch) {
   const db = editorial.db;
   const getSlot = db.prepare('SELECT * FROM editorial_slots WHERE record_id=?');
-  async function status(id, token) {
-    if (!editorial.canManage(id,token)) throw new IntakeError(404,'Submission not found.');
-    const record = await editorial.get(id);
-    if (record.category !== 'sponsor') throw new IntakeError(404,'Submission not found.');
-    const slot = await getSlot.get(id);
-    const payable = Boolean(settings.key && settings.webhook && slot?.state==='reserved' &&
-      slot.expires_at>Date.now() && record.state==='approved');
-    return { state:slot?.state || record.state, issueDate:record.draft.issueDate, title:record.draft.title,
-      amount:slot?.amount_minor || null, currency:slot?.currency || 'usd', payable };
-  }
   function stripe(path,options) {
     return jsonRequest('https://api.stripe.com/v1/'+path,{ ...options, headers:{
       authorization:'Bearer '+settings.key,...options.headers,
     } },fetcher);
   }
+  const ready=Boolean(settings.key && settings.webhook);
+  const lookup=id=>stripe('checkout/sessions/'+encodeURIComponent(id),{});
+  async function settle(session) {
+    const metadata=session?.metadata;
+    if (!metadata?.record_id || !/^cs_[A-Za-z0-9_]+$/.test(session.id||'')) return;
+    await db.transaction(async () => {
+      const slot=await getSlot.get(metadata.record_id);
+      if (slot?.state!=='reserved' || slot.issue_date!==metadata.issue_date ||
+          String(slot.revision)!==metadata.revision || slot.checkout_id && slot.checkout_id!==session.id) return;
+      let state;
+      if (session.status==='expired') state='released';
+      else if (session.payment_status==='paid' && slot.amount_minor===session.amount_total && slot.currency===session.currency) {
+        const record=await editorial.get(slot.record_id);
+        const issue=await db.prepare('SELECT state,contents FROM editorial_issues WHERE issue_date=?').get(slot.issue_date);
+        const missed=slot.issue_date<denverTime().slice(0,10) ||
+          issue?.state==='sent' && JSON.parse(issue.contents).sponsor?.recordId!==slot.record_id;
+        state=record.state==='approved' && record.revision===slot.revision && !missed ? 'paid' : 'refund_review';
+      }
+      if (state) await db.prepare("UPDATE editorial_slots SET state=?,checkout_id=? WHERE record_id=? AND state='reserved'")
+        .run(state,session.id,slot.record_id);
+    });
+  }
+  async function status(id, token, refresh = true) {
+    if (!editorial.canManage(id,token)) throw new IntakeError(404,'Submission not found.');
+    const record = await editorial.get(id);
+    if (record.category !== 'sponsor') throw new IntakeError(404,'Submission not found.');
+    let slot = await getSlot.get(id);
+    if (refresh && ready && slot?.state==='reserved' && slot.checkout_id) {
+      try { await settle(await lookup(slot.checkout_id)); slot=await getSlot.get(id); }
+      catch { /* The verified webhook and scheduled reconciliation can finish the same payment. */ }
+    }
+    const payable = ready && slot?.state==='reserved' && slot.expires_at>Date.now() &&
+      slot.revision===record.revision && record.state==='approved';
+    return { state:slot?.state || record.state, issueDate:record.draft.issueDate, title:record.draft.title,
+      amount:slot?.amount_minor || null, currency:slot?.currency || 'usd', payable:Boolean(payable) };
+  }
   async function checkout(id,token) {
-    const current = await status(id,token);
+    const current = await status(id,token,false);
     if (!current.payable) throw new IntakeError(409,'Checkout is currently unavailable for this submission.');
     const slot = await getSlot.get(id);
     const record = await editorial.get(id);
@@ -66,7 +93,7 @@ export function stripePayments(editorial, settings, origin, fetcher=fetch) {
       throw new IntakeError(409,'Checkout is currently unavailable for this submission.');
     }
     if (slot.checkout_id) {
-      const saved = await stripe('checkout/sessions/'+encodeURIComponent(slot.checkout_id),{});
+      const saved = await lookup(slot.checkout_id);
       if (saved.status !== 'open' || !saved.url) throw new IntakeError(409,'Refresh the sponsorship status.');
       return saved.url;
     }
@@ -102,22 +129,19 @@ export function stripePayments(editorial, settings, origin, fetcher=fetch) {
     try { event=JSON.parse(raw); } catch { throw new IntakeError(400,'Invalid payment event.'); }
     if (!['checkout.session.completed','checkout.session.async_payment_succeeded','checkout.session.expired'].includes(event.type)) return;
     const session=event.data?.object;
-    const metadata=session?.metadata;
-    if (!metadata?.record_id) return;
-    await db.transaction(async () => {
-      const slot=await getSlot.get(metadata.record_id);
-      if (!slot || slot.issue_date!==metadata.issue_date || String(slot.revision)!==metadata.revision ||
-          slot.amount_minor!==session.amount_total || slot.currency!==session.currency ||
-          slot.checkout_id && slot.checkout_id!==session.id) return;
-      if (event.type==='checkout.session.expired') {
-        await db.prepare("UPDATE editorial_slots SET state='released' WHERE record_id=? AND state='reserved'").run(slot.record_id);
-      } else if (session.payment_status==='paid') {
-        const record=await editorial.get(slot.record_id);
-        const state=record.state==='approved' ? 'paid' : 'refund_review';
-        await db.prepare("UPDATE editorial_slots SET state=?,checkout_id=? WHERE record_id=? AND state='reserved'")
-          .run(state,session.id,slot.record_id);
-      }
-    });
+    if (event.type==='checkout.session.expired' && session) session.status='expired';
+    await settle(session);
   }
-  return { status,checkout,receive };
+  async function reconcile(now=new Date()) {
+    if (!ready) return;
+    const rows=await db.prepare(`SELECT s.checkout_id,r.state FROM editorial_slots s JOIN editorial_records r ON r.id=s.record_id
+      WHERE s.state='reserved' AND s.checkout_id IS NOT NULL AND (s.expires_at<=? OR r.state='withdrawn') LIMIT 10`).all(now.valueOf());
+    await Promise.allSettled(rows.map(async row=>{
+      const session=await lookup(row.checkout_id);
+      if (row.state==='withdrawn' && session.status==='open') {
+        await settle(await stripe('checkout/sessions/'+encodeURIComponent(row.checkout_id)+'/expire',{method:'POST'}));
+      } else await settle(session);
+    }));
+  }
+  return { status,checkout,receive,reconcile };
 }

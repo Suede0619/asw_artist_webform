@@ -6,7 +6,11 @@ import { openDatabase } from './database.mjs';
 export function createStore(config) {
   const postgres = Boolean(config.databaseUrl);
   const sqlite = postgres ? null : openDatabase(config.dataDir);
-  if (sqlite && config.editorial) sqlite.exec(readFileSync(new URL('./schema/002-editorial.sql', import.meta.url), 'utf8'));
+  if (sqlite && config.editorial) {
+    for (const file of ['002-editorial.sql','003-editorial-delivery.sql']) {
+      sqlite.exec(readFileSync(new URL('./schema/'+file, import.meta.url), 'utf8'));
+    }
+  }
   const pool = postgres ? new pg.Pool({
     connectionString: verifiedPostgresUrl(config.databaseUrl),
     max: 5,

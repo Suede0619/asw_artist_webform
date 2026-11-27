@@ -88,10 +88,12 @@ export function createEditorial({ db, config, media, imageResponse, cacheCalenda
   }
   async function attach(id, revision, file, alt, credit, { source = '' } = {}) {
     const imageId = await savePhoto(file);
+    let previousImage;
     try {
       await db.transaction(async () => {
         const record = await get(id);
         if (record.revision !== revision || record.state !== 'pending') throw new IntakeError(409, 'Refresh the review and try again.');
+        previousImage=record.image_id;
         const next = { ...record.draft,imageAlt:alt,imageCredit:credit,imageRights:!source,imageSource:source };
         await db.prepare('UPDATE editorial_records SET image_id=?,draft=?,revision=revision+1,updated_at=? WHERE id=?')
           .run(imageId,JSON.stringify(next),Date.now(),id);
@@ -99,13 +101,22 @@ export function createEditorial({ db, config, media, imageResponse, cacheCalenda
       });
       return get(id);
     } finally {
-      await removeUnused(imageId).catch(() => console.error('Editorial media cleanup needs attention.'));
+      for (const candidate of [imageId,previousImage].filter(Boolean)) {
+        await removeUnused(candidate).catch(() => console.error('Editorial media cleanup needs attention.'));
+      }
     }
   }
   async function decide(id, choice) {
     return db.transaction(async () => {
       const record = await get(id);
       if (choice.revision !== record.revision) throw new IntakeError(409, 'Refresh the review and try again.');
+      if (choice.action==='revise') {
+        if (record.category!=='calendar' || record.state!=='approved') throw new IntakeError(409,'This entry cannot be revised.');
+        await db.prepare("UPDATE editorial_records SET state='pending',revision=revision+1,updated_at=? WHERE id=?")
+          .run(Date.now(),id);
+        await audit.run(id,config.reviewerId,'revision_opened','',Date.now());
+        return get(id);
+      }
       if (choice.action !== 'withdraw' && record.state !== 'pending') throw new IntakeError(409, 'This entry is no longer in review.');
       if (choice.action === 'approve' && (!record.image_id || (!record.draft.imageRights && !record.draft.imageSource) || !choice.clearance)) {
         throw new IntakeError(422, 'Confirm the details and publication rights and attach a cleared image.');
@@ -116,8 +127,8 @@ export function createEditorial({ db, config, media, imageResponse, cacheCalenda
       const state = { approve:'approved', decline:'declined', withdraw:'withdrawn' }[choice.action];
       if (state === 'approved') {
         if (record.category === 'calendar') {
-          const amended = { ...record.draft, summary:choice.summary || record.draft.summary,
-            relatedId:choice.relatedId || '', artistSlug:choice.artistSlug || record.draft.artistSlug };
+          const amended = { ...record.draft,...choice.schedule,summary:choice.summary || record.draft.summary,
+            relatedId:choice.relatedId ?? record.draft.relatedId, artistSlug:choice.artistSlug ?? record.draft.artistSlug };
           if (amended.artistSlug) {
             const profile=await db.prepare('SELECT data FROM publications WHERE slug=?').get(amended.artistSlug);
             if (!profile || artistMarket(JSON.parse(profile.data))!==amended.city) {
@@ -131,7 +142,10 @@ export function createEditorial({ db, config, media, imageResponse, cacheCalenda
           }
           const visible = await db.prepare("SELECT id,approved FROM editorial_records WHERE category='calendar' AND approved IS NOT NULL AND id<>?").all(id);
           const key = row => [row.city,row.kind,row.title.toLowerCase(),row.venue.toLowerCase(),row.startDate,row.startTime].join('|');
-          if (visible.some(row=>key(JSON.parse(row.approved))===key(amended))) {
+          if (amended.scheduleStatus!=='canceled' && visible.some(row=>{
+            const current=JSON.parse(row.approved);
+            return current.scheduleStatus!=='canceled' && key(current)===key(amended);
+          })) {
             throw new IntakeError(409,'This occurrence already has a published listing.');
           }
           approved = calendarPublic(amended,record.image_id);
@@ -164,9 +178,10 @@ export function createEditorial({ db, config, media, imageResponse, cacheCalenda
         await db.prepare(`UPDATE editorial_slots SET state=CASE WHEN state='paid' THEN 'refund_review' ELSE state END
           WHERE record_id=? AND state='paid'`).run(id);
       }
-      await db.prepare(`UPDATE editorial_records SET state=?,approved=?,approved_image_id=?,review_note=?,reviewed_by=?,
+      const draft=record.category==='calendar' && state==='approved' ? { ...record.draft,...approved } : record.draft;
+      await db.prepare(`UPDATE editorial_records SET state=?,approved=?,approved_image_id=?,review_note=?,reviewed_by=?,draft=?,
         revision=revision+1,updated_at=? WHERE id=?`)
-        .run(state,approved ? JSON.stringify(approved) : null,approvedImage,choice.note,config.reviewerId,now,id);
+        .run(state,approved ? JSON.stringify(approved) : null,approvedImage,choice.note,config.reviewerId,JSON.stringify(draft),now,id);
       await audit.run(id,config.reviewerId,state,choice.note,now);
       return get(id);
     });
@@ -193,7 +208,8 @@ export function createEditorial({ db, config, media, imageResponse, cacheCalenda
   }
   async function reviewQueue() {
     const rows = await db.prepare(`SELECT r.*,s.state AS payment_state,s.amount_minor AS payment_amount
-      FROM editorial_records r LEFT JOIN editorial_slots s ON s.record_id=r.id ORDER BY r.updated_at DESC LIMIT 300`).all();
+      FROM editorial_records r LEFT JOIN editorial_slots s ON s.record_id=r.id
+      ORDER BY CASE WHEN r.state='pending' THEN 0 ELSE 1 END,r.updated_at DESC LIMIT 300`).all();
     return rows.map(data);
   }
   async function publicPhoto(res,id) {

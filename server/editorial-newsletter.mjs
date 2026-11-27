@@ -16,7 +16,6 @@ const dateLabel = row => row.kind==='exhibition'
   ? showDate(row.startDate)+' to '+showDate(row.endDate)
   : showDate(row.startDate)+', '+showTime(row.startTime)+' to '+(row.startDate!==row.endDate?showDate(row.endDate)+', ':'')+showTime(row.endTime);
 const digestOf = items => digest(JSON.stringify(items));
-const PUBLIC_STATES = new Set(['sent','sending']);
 function short(value, count=290) {
   return value.length>count ? value.slice(0,count).replace(/\s+\S*$/,'')+'…' : value;
 }
@@ -77,7 +76,8 @@ export function renderIssue(issue, settings) {
 
 export function createNewsletter(editorial, settings, getPublications, fetcher=fetch) {
   const db=editorial.db;
-  const issueByDate=db.prepare('SELECT * FROM editorial_issues WHERE issue_date=?');
+  const issueByDate=db.prepare(`SELECT i.*,d.started_at AS dispatch_started_at FROM editorial_issues i
+    LEFT JOIN editorial_deliveries d ON d.issue_date=i.issue_date WHERE i.issue_date=?`);
   async function contents(date, now) {
     const { all }=await editorial.calendar({ now });
     const through=offsetDate(date,6);
@@ -98,14 +98,14 @@ export function createNewsletter(editorial, settings, getPublications, fetcher=f
     const profile=link ? profiles.find(candidate=>candidate.slug===link.artistSlug) : profiles[week%profiles.length];
     const artist=profile ? { title:profile.name, summary:short(profile.bio),city:artistMarket(profile),slug:profile.slug,
       image:profile.portrait?.id ? '/api/catalog/media/'+profile.portrait.id : '', imageAlt:profile.portrait?.alt || profile.name } : null;
-    const slot=await db.prepare(`SELECT r.approved FROM editorial_slots s JOIN editorial_records r ON r.id=s.record_id
+    const slot=await db.prepare(`SELECT r.id,r.approved FROM editorial_slots s JOIN editorial_records r ON r.id=s.record_id
       WHERE s.issue_date=? AND s.state='paid' AND r.state='approved' AND r.revision=s.revision`).get(date);
-    return { date,events,artist,sponsor:slot ? JSON.parse(slot.approved) : null };
+    return { date,events,artist,sponsor:slot ? {...JSON.parse(slot.approved),recordId:slot.id} : null };
   }
   async function prepare(date, now=new Date()) {
     return db.transaction(async () => {
       const old=await issueByDate.get(date);
-      if (old?.state==='sent' || old?.state==='expired') return old;
+      if (old?.state==='sent' || old?.state==='expired' || old?.dispatch_started_at) return old;
       const issue=await contents(date,now);
       const sum=digestOf(issue);
       if (old?.digest===sum) return old;
@@ -132,33 +132,68 @@ export function createNewsletter(editorial, settings, getPublications, fetcher=f
     if (!row) throw new IntakeError(404,'Roundup not found.');
     return { ...row,contents:JSON.parse(row.contents) };
   }
+  async function markSent(row) {
+    await db.prepare(`UPDATE editorial_issues SET state='sent',last_error=NULL,updated_at=?
+      WHERE issue_date=? AND state='approved' AND campaign_id=? AND digest=?`)
+      .run(Date.now(),row.issue_date,row.campaign_id,row.digest);
+  }
+  async function reconcile(row, remote, today) {
+    const campaign=await remote.get(row.campaign_id);
+    if (campaign.status==='sent') {
+      await markSent(row);
+      return 'sent';
+    }
+    if (campaign.status==='sending') {
+      await db.prepare('UPDATE editorial_issues SET last_error=NULL WHERE issue_date=?').run(row.issue_date);
+      return 'sending';
+    }
+    if (campaign.status!=='save') throw new Error('Mailchimp campaign needs attention.');
+    if (row.issue_date<today) {
+      await db.prepare("UPDATE editorial_issues SET state='expired',updated_at=? WHERE issue_date=? AND state='approved'")
+        .run(Date.now(),row.issue_date);
+      return 'expired';
+    }
+    return 'save';
+  }
   async function send(date,now) {
-    const row=await issueByDate.get(date);
+    let row=await issueByDate.get(date);
     if (row?.state!=='approved' || !settings.mailchimp.send) return;
     const remote=mailchimpClient(settings.mailchimp,fetcher);
-    const title='ArtSouthwest Weekly '+date;
-    // Reconcile provider state before modifying a draft. A response may have been lost after sending.
-    let campaign=row.campaign_id ? await remote.get(row.campaign_id) : await remote.find(title,date);
-    if (campaign && PUBLIC_STATES.has(campaign.status)) {
-      await db.prepare("UPDATE editorial_issues SET state='sent',campaign_id=?,last_error=NULL,updated_at=? WHERE issue_date=?")
-        .run(campaign.id,Date.now(),date);
+    if (row.dispatch_started_at) {
+      if (await reconcile(row,remote,date)!=='save') return;
+      // A provider draft can be retried after we verify what an editor approved is still current.
+      if (row.digest!==digestOf(await contents(date,now))) {
+        await db.transaction(async()=>{
+          await db.prepare('DELETE FROM editorial_deliveries WHERE issue_date=? AND campaign_id=?').run(date,row.campaign_id);
+          await db.prepare("UPDATE editorial_issues SET state='draft',review_note='',last_error=NULL WHERE issue_date=? AND state='approved'")
+            .run(date);
+        });
+        await prepare(date,now);
+        return;
+      }
+      if (denverTime().slice(0,10)===date) await remote.send(row.campaign_id);
+      await reconcile(row,remote,denverTime().slice(0,10));
       return;
     }
+    const title='ArtSouthwest Weekly '+date;
+    let campaign=row.campaign_id ? await remote.get(row.campaign_id) : await remote.find(title,date);
     const checked=await prepare(date,now);
     if (checked.state!=='approved' || checked.digest!==row.digest) return;
     const body=renderIssue(JSON.parse(checked.contents),settings);
     campaign ||= await remote.create({ title,subject:body.subject,preview:body.preview });
-    await db.prepare('UPDATE editorial_issues SET campaign_id=? WHERE issue_date=?').run(campaign.id,date);
     if (campaign.status!=='save') throw new Error('Mailchimp campaign needs attention.');
+    await db.prepare('UPDATE editorial_issues SET campaign_id=? WHERE issue_date=?').run(campaign.id,date);
     await remote.content(campaign.id,body.html,body.plain);
-    const checklist=await remote.checklist(campaign.id);
-    if (!checklist.is_ready) throw new Error('Mailchimp send checklist is incomplete.');
-    // A changed event invalidates this exact approval before the provider receives a send request.
+    if (!(await remote.checklist(campaign.id)).is_ready) throw new Error('Mailchimp send checklist is incomplete.');
     const last=await prepare(date,new Date());
     if (last.state!=='approved' || last.digest!==checked.digest || denverTime().slice(0,10)!==date) return;
+    const started=await db.prepare(`INSERT INTO editorial_deliveries(issue_date,campaign_id,digest,started_at)
+      SELECT issue_date,campaign_id,digest,? FROM editorial_issues WHERE issue_date=? AND state='approved' AND digest=? AND campaign_id=?
+      ON CONFLICT(issue_date) DO NOTHING`).run(Date.now(),date,last.digest,campaign.id);
+    if (!started.changes) return;
+    row=await issueByDate.get(date);
     await remote.send(campaign.id);
-    await db.prepare("UPDATE editorial_issues SET state='sent',last_error=NULL,updated_at=? WHERE issue_date=?")
-      .run(Date.now(),date);
+    await reconcile(row,remote,denverTime().slice(0,10));
   }
   async function report(date) {
     const row=await get(date);
@@ -187,7 +222,14 @@ export function createNewsletter(editorial, settings, getPublications, fetcher=f
           .run('{"error":"Job needs attention and will retry."}',name,token);
       }
     }
-    await db.prepare("UPDATE editorial_issues SET state='expired' WHERE issue_date<? AND state IN ('draft','approved')").run(date);
+    await db.prepare(`UPDATE editorial_issues SET state='expired' WHERE issue_date<? AND state IN ('draft','approved')
+      AND NOT EXISTS (SELECT 1 FROM editorial_deliveries d WHERE d.issue_date=editorial_issues.issue_date)`).run(date);
+    if (settings.mailchimp.key) {
+      const unsettled=await db.prepare(`SELECT i.* FROM editorial_issues i JOIN editorial_deliveries d ON d.issue_date=i.issue_date
+        WHERE i.issue_date<? AND i.state='approved' ORDER BY i.issue_date LIMIT 10`).all(date);
+      const remote=mailchimpClient(settings.mailchimp,fetcher);
+      for (const row of unsettled) await withLease('delivery:'+row.issue_date,()=>reconcile(row,remote,date),false);
+    }
     await db.prepare("UPDATE editorial_slots SET state='released' WHERE state='reserved' AND checkout_id IS NULL AND expires_at<?").run(now.valueOf());
     if (time>='05:00') await withLease('calendar:'+date, () => discoverCalendar(editorial,settings,now,fetcher));
     if (isIssueDate(date) && time>='07:00') {
@@ -202,6 +244,7 @@ export function createNewsletter(editorial, settings, getPublications, fetcher=f
       },false);
     }
   }
-  const list = () => db.prepare("SELECT issue_date,state,digest,updated_at,last_error FROM editorial_issues ORDER BY issue_date DESC LIMIT 30").all();
+  const list = () => db.prepare(`SELECT i.issue_date,i.state,i.digest,i.updated_at,i.last_error,d.started_at AS dispatch_started_at
+    FROM editorial_issues i LEFT JOIN editorial_deliveries d ON d.issue_date=i.issue_date ORDER BY i.issue_date DESC LIMIT 30`).all();
   return { prepare,approve,get,list,report,jobs,preview:row=>renderIssue(row.contents,settings) };
 }

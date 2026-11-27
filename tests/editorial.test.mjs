@@ -182,11 +182,38 @@ test('the weekly job submits approved Mailchimp content once and reconciles a lo
   await weekly.jobs();
   assert.equal(sendCalls,1);
   assert.equal((await weekly.get(thursday)).state,'approved');
+  assert.ok((await weekly.get(thursday)).dispatch_started_at);
   t.mock.timers.setTime(Date.now()+6*60000);
+  await weekly.jobs();
+  assert.equal(sendCalls,1);
+  assert.equal((await weekly.get(thursday)).state,'approved');
+  const after=await f.editorial.get(event.id);
+  await f.change('/api/review/editorial/records/'+event.id,{revision:after.revision,action:'withdraw'},cookie);
+  assert.equal((await weekly.prepare(thursday)).digest,draft.digest);
+  campaign.status='sent';
+  t.mock.timers.setTime(Date.now()+86400000);
   await weekly.jobs();
   assert.equal(sendCalls,1);
   assert.equal((await weekly.get(thursday)).state,'sent');
   assert.deepEqual(await weekly.report(thursday),{sent:50,bounces:2,opens:12,clicks:8,unsubscribes:1});
+});
+
+test('curator schedule corrections preserve the current entry until the writer approves the revision',async t=>{
+  const f=await fixture(t);
+  const cookie=await signIn(f);
+  const item=await submit(f,'calendar',values());
+  const first=await f.approve(item.id,{},cookie);
+  const edit=await f.change('/api/review/editorial/records/'+item.id,{revision:first.revision,action:'revise'},cookie);
+  assert.equal(edit.status,200);
+  const revision=await edit.json();
+  assert.equal(revision.state,'pending');
+  assert.equal((await f.editorial.calendar()).week.length,1);
+  await f.approve(item.id,{revision:revision.revision,schedule:{
+    startDate:first.approved.startDate,endDate:first.approved.endDate,startTime:'16:00',endTime:'18:00',scheduleStatus:'canceled',
+  }},cookie);
+  const updated=await f.editorial.calendar();
+  assert.equal(updated.week.length,0);
+  assert.equal(updated.all[0].scheduleStatus,'canceled');
 });
 
 test('signed Stripe events can reserve and pay one approved ad without recording a duplicate',async t=>{
@@ -213,4 +240,21 @@ test('signed Stripe events can reserve and pay one approved ad without recording
   await state.receive(event,signature);
   assert.equal((await state.status(proposal.id,proposal.token)).state,'paid');
   assert.equal((await f.get('/api/editorial/media/'+record.image_id)).status,200);
+});
+
+test('an expired reservation reconciles with Stripe after a lost webhook',async t=>{
+  const f=await fixture(t);
+  const cookie=await signIn(f);
+  const proposal=await submit(f,'sponsor',{organization:'Example Studio',contact:'ads@example.com',issueDate:nextIssue(),
+    title:'Sponsored studio visit',summary:'Private previews at the studio.',destination:'https://example.org/',
+    imageAlt:'Studio facade',imageRights:true});
+  const record=await f.approve(proposal.id,{},cookie);
+  const session={id:'cs_test_expiry',status:'open',url:'https://checkout.stripe.com/test',
+    metadata:{record_id:proposal.id,issue_date:record.draft.issueDate,revision:String(record.revision)}};
+  const state=stripePayments(f.editorial,{key:'test',webhook:'test'},'https://artsouthwest.example',
+    async()=>Response.json(session));
+  await state.checkout(proposal.id,proposal.token);
+  session.status='expired';
+  await state.reconcile(new Date(Date.now()+86400001));
+  assert.equal((await state.status(proposal.id,proposal.token)).state,'released');
 });
